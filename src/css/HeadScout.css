@@ -1,0 +1,338 @@
+/* --- 基礎容器與佈局 --- */
+.head-scout-container {
+  display: flex;
+  min-height: 100vh;
+  background-color: #f0f2f5;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.head-sidebar {
+  width: 220px;
+  background-color: #2c3e50;
+  padding: 20px;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.head-sidebar-header {
+  margin-bottom: 30px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 15px;
+}
+
+.head-main-content {
+  flex: 1;
+  padding: 30px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* --- 側邊欄按鈕 --- */
+.head-tab-btn {
+  width: 100%;
+  padding: 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: #bdc3c7;
+  cursor: pointer;
+  font-size: 14px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  margin-bottom: 4px;
+}
+
+.head-tab-btn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+
+.head-tab-btn.active {
+  background-color: #3498db;
+  color: #fff;
+  font-weight: bold;
+}
+
+/* --- 卡片與內容組件 --- */
+.scout-card {
+  background-color: #fff;
+  padding: 25px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  margin-bottom: 20px;
+}
+
+.scout-card-title {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.scout-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+/* --- 表單元素 --- */
+.scout-textarea {
+  width: 100%;
+  height: 100px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  box-sizing: border-box; /* 確保寬度包含 padding */
+}
+
+.scout-filter-input {
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  font-size: 14px;
+  outline: none;
+}
+
+.scout-filter-input:focus {
+  border-color: #3498db;
+}
+
+/* --- 按鈕樣式 --- */
+.btn-primary {
+  width: 100%;
+  padding: 12px;
+  background-color: #3498db;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover {
+  background-color: #2980b9;
+}
+
+.btn-action-sm {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: none;
+  background-color: #e8f4fd;
+  color: #2196F3;
+  cursor: pointer;
+  font-size: 12px;
+  transition: opacity 0.2s;
+}
+
+.btn-action-sm:hover {
+  opacity: 0.8;
+}
+
+/* --- Pit 數據展示卡片 --- */
+.pit-card {
+  background-color: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  border: 1px solid #eee;
+}
+
+.pit-img {
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+}
+
+.pit-no-img {
+  width: 100%;
+  height: 160px;
+  background-color: #f8f9fa;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #adb5bd;
+}
+
+.pit-text {
+  font-size: 14px;
+  margin: 4px 0;
+}
+
+.pit-note {
+  font-size: 13px;
+  color: #7f8c8d;
+  font-style: italic;
+  margin-top: 10px;
+  background-color: #f9f9f9;
+  padding: 10px;
+  border-radius: 6px;
+}
+
+/* --- 表格樣式 --- */
+.scout-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.scout-table th {
+  text-align: left;
+  padding: 12px;
+  border-bottom: 2px solid #edf2f7;
+  color: #718096;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.scout-table td {
+  padding: 12px;
+  border-bottom: 1px solid #edf2f7;
+  font-size: 14px;
+}
+
+/* --- 衝突解決 (Conflict Resolution) --- */
+.conflict-box {
+  padding: 15px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.version-card {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+}
+
+.version-label {
+  font-size: 11px;
+  background: #eee;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  display: inline-block;
+}
+
+.version-img {
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.btn-keep {
+  width: 100%;
+  padding: 8px;
+  margin-top: 10px;
+  background: #f5f5f5;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-keep:hover {
+  background: #e0e0e0;
+}
+
+/* --- 全螢幕彈窗 (Modal) --- */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: rgba(0, 0, 0, 0.85);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-content {
+  background-color: #fff;
+  padding: 25px;
+  border-radius: 16px;
+  width: 95%;
+  max-width: 1200px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+/* --- 賽程表格專用樣式 (防止跑版) --- */
+.schedule-table-container {
+  width: 100%;
+  border-radius: 8px;
+  overflow-x: auto; /* 若螢幕太窄可橫向捲動，但不影響側邊欄 */
+}
+
+.schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed; /* 重要：固定欄寬，防止內容撐開 */
+  min-width: 600px;    /* 確保表格內容不會擠成一團 */
+}
+
+.schedule-table th, .schedule-table td {
+  padding: 12px 8px;
+  text-align: center;
+  border-bottom: 1px solid #edf2f7;
+  word-wrap: break-word; /* 自動換行 */
+}
+
+.schedule-table th {
+  background-color: #f8f9fa;
+  color: #4a5568;
+  font-size: 13px;
+  position: sticky;
+  top: 0;
+}
+
+/* 分數輸入框樣式 */
+.score-input {
+  width: 60px;
+  padding: 6px;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.score-input:focus {
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+/* 移除 HTML5 數字輸入框的小箭頭 */
+.score-input::-webkit-inner-spin-button,
+.score-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.table-select {
+  width: 100%;
+  padding: 6px;
+  border: 1px solid transparent;
+  background-color: transparent;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+  text-align: center;
+  appearance: none; /* 隱藏原生箭頭讓介面乾淨 */
+  -webkit-appearance: none;
+}
+
+.table-select:hover {
+  background-color: #f0f0f0;
+  border-color: #ccc;
+}
+
+.table-select:focus {
+  outline: none;
+  background-color: #fff;
+  border-color: #2196F3;
+  box-shadow: 0 0 4px rgba(33, 150, 243, 0.3);
+}
+
+/* 讓表格置中顯示 */
+.verify-table td {
+  text-align: center;
+  padding: 4px;
+}
