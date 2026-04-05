@@ -208,6 +208,30 @@
   font-weight: bold;
   cursor: pointer;
 }
+.rating-group {
+  display: flex;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.rating-btn {
+  flex: 1;
+  padding: 10px 0;
+  border: none;
+  border-radius: 6px;
+  font-weight: bold;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background-color: #eee;
+}
+
+/* 選中時的立體效果 */
+.rating-btn.active {
+  transform: scale(1.05);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  color: white !important;
+}
 
 /* ✨ 響應式優化：iPad 橫向或大螢幕時 */
 @media (min-width: 768px) {

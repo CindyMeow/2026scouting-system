@@ -6,7 +6,6 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 require('dotenv').config(); // 必須放在最上面
-const express = require('express');
 
 // ✨ 1. 引入路徑配置檔
 // 確保你已經建立了 config/paths.js
@@ -313,6 +312,6 @@ app.get('/api/sync-external', async (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server is running!`);
-  console.log(`🏠 Local: http://${window.location.hostname}:${PORT}`);
+  console.log(`🏠 Local: http://localhost:${PORT}`);
   // 這裡可以手動印出你的電腦 IP，方便隊友連線
 });

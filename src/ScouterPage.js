@@ -25,12 +25,16 @@ const compressPath = (pathPoints, shotPoints) => {
 };
 
 const ScouterPage = () => {
+
+  const [autoClimbLevel, setAutoClimbLevel] = useState(0); // Auto 吊掛
+  const [isClimbTimerRunning, setIsClimbTimerRunning] = useState(false); // 攀爬計時開關
+  const [climbStart, setClimbStart] = useState(null); // 攀爬開始時間
   // --- 基礎資訊 ---
-const [matchInfo, setMatchInfo] = useState({ 
-  match: '', // 預設留空，等 useEffect 載入 schedule 後自動填入第一場
-  team: '', 
-  station: localStorage.getItem('scouterStation') || 'Red 1' 
-});
+  const [matchInfo, setMatchInfo] = useState({
+    match: '', // 預設留空，等 useEffect 載入 schedule 後自動填入第一場
+    team: '',
+    station: localStorage.getItem('scouterStation') || 'Red 1'
+  });
 
 
   const [schedule, setSchedule] = useState({});
@@ -55,7 +59,7 @@ const [matchInfo, setMatchInfo] = useState({
   }, []);
 
 
-// --- 3. 自動連動邏輯 (相容 CSV 與 TBA 格式) ---
+  // --- 3. 自動連動邏輯 (相容 CSV 與 TBA 格式) ---
   useEffect(() => {
     const m = matchInfo.match;
     const s = matchInfo.station; // 例如 "Red 1"
@@ -64,14 +68,14 @@ const [matchInfo, setMatchInfo] = useState({
       const matchData = schedule[m];
       const alliance = s.split(' ')[0].toLowerCase(); // "red"
       const posNum = s.split(' ')[1];                 // "1"
-      
+
       let autoTeam = "";
 
       // 1. 檢查 CSV 格式 (具有 red1, red2, blue1... 欄位)
       const csvKey = `${alliance}${posNum}`;
       if (matchData[csvKey]) {
         autoTeam = matchData[csvKey];
-      } 
+      }
       // 2. 檢查 TBA/自定義陣列格式 (具有 red: [], blue: [] 欄位)
       else if (Array.isArray(matchData[alliance])) {
         const idx = parseInt(posNum) - 1;
@@ -85,18 +89,18 @@ const [matchInfo, setMatchInfo] = useState({
     }
   }, [matchInfo.match, matchInfo.station, schedule]);
   // 新增一個 useEffect：當 schedule 載入後，自動選定第一場比賽
-useEffect(() => {
-  if (Object.keys(schedule).length > 0 && !matchInfo.match) {
-    // 取得排序後的第一個 Key
-    const firstMatchKey = Object.entries(schedule).sort(([ka, a], [kb, b]) => {
-      const weights = { qm: 1, sf: 2, f: 3 };
-      if (weights[a.comp_level] !== weights[b.comp_level]) return weights[a.comp_level] - weights[b.comp_level];
-      return (a.match_number || 0) - (b.match_number || 0);
-    })[0][0];
-    
-    setMatchInfo(prev => ({ ...prev, match: firstMatchKey }));
-  }
-}, [schedule]);
+  useEffect(() => {
+    if (Object.keys(schedule).length > 0 && !matchInfo.match) {
+      // 取得排序後的第一個 Key
+      const firstMatchKey = Object.entries(schedule).sort(([ka, a], [kb, b]) => {
+        const weights = { qm: 1, sf: 2, f: 3 };
+        if (weights[a.comp_level] !== weights[b.comp_level]) return weights[a.comp_level] - weights[b.comp_level];
+        return (a.match_number || 0) - (b.match_number || 0);
+      })[0][0];
+
+      setMatchInfo(prev => ({ ...prev, match: firstMatchKey }));
+    }
+  }, [schedule]);
 
   // 保存 Station 設定到本地
   const handleStationChange = (val) => {
@@ -136,6 +140,18 @@ useEffect(() => {
 
   const [showQR, setShowQR] = useState(false);
 
+
+  const handleClimbTimer = () => {
+    if (!isClimbTimerRunning) {
+      setClimbStart(Date.now());
+      setIsClimbTimerRunning(true);
+    } else {
+      const duration = ((Date.now() - climbStart) / 1000).toFixed(1);
+      setClimbTime(duration);
+      setIsClimbTimerRunning(false);
+    }
+  };
+
   // --- 邏輯計算 ---
   const handleCycleTimer = () => {
     if (!timerActive) {
@@ -157,12 +173,12 @@ useEffect(() => {
   // 預估總分 (假設 2026 權重:  AutoFuel 1, TeleFuel 1, ClimbL3 15)
   const estimatedScore = (autoFuel * 1) + (fuelH * 1) + (climbLevel * 15);
   const currentMatchData = schedule[matchInfo.match] || {};
-const compLevel = currentMatchData.comp_level || 'qm';
-const matchNum = currentMatchData.match_number || matchInfo.match;
+  const compLevel = currentMatchData.comp_level || 'qm';
+  const matchNum = currentMatchData.match_number || matchInfo.match;
 
-const matchDisplay = isNaN(matchInfo.match) 
-  ? matchInfo.match                      // 如果是字串 (如 qm1)，直接傳
-  : (Number(matchInfo.match) || 0) + 1;  // 如果是純數字(索引)，則加 1
+  const matchDisplay = isNaN(matchInfo.match)
+    ? matchInfo.match                      // 如果是字串 (如 qm1)，直接傳
+    : (Number(matchInfo.match) || 0) + 1;  // 如果是純數字(索引)，則加 1
 
   // 數據打包 (CSV 格式) - 重要：加入 autoFuel 在第 6 個位置
   const compressedData = [
@@ -172,6 +188,7 @@ const matchDisplay = isNaN(matchInfo.match)
     autoSuccess ? 1 : 0,
     compressPath(autoPath, shotLocations),
     autoFuel,
+    autoClimbLevel,
     fuelH,
     missed,
     avgCycle,
@@ -200,46 +217,46 @@ const matchDisplay = isNaN(matchInfo.match)
       <div className="scouter-card">
         <div className="scouter-row">
           <div>
-<select
-  className="scouter-input"
-  value={matchInfo.match}
-  onChange={e => setMatchInfo({ ...matchInfo, match: e.target.value })}
->
-  {Object.keys(schedule).length > 0
-    ? Object.entries(schedule)
-        // 🏆 排序邏輯：QM -> SF -> F
-        .sort(([keyA, a], [keyB, b]) => {
-          const weights = { qm: 1, sf: 2, f: 3 };
-          const levelA = a.comp_level || 'qm';
-          const levelB = b.comp_level || 'qm';
-          
-          if (weights[levelA] !== weights[levelB]) {
-            return weights[levelA] - weights[levelB];
-          }
-          // 同階段比場次編號
-          return (a.match_number || 0) - (b.match_number || 0);
-        })
-        .map(([mKey, mData]) => {
-          // 🏆 顯示標籤邏輯
-          const level = mData.comp_level || 'qm';
-          const mNum = mData.match_number || mData.match || mKey;
-          const displayLabel = level === 'qm' ? `Q${mNum}` : 
-                               level === 'sf' ? `SF${mData.set_number || mNum}` : 
-                               `F${mNum}`;
-          
-          return (
-            <option key={mKey} value={mKey}>
-              {displayLabel}
-            </option>
-          );
-        })
-    : // 若無賽程，預設顯示 Q1-Q100
-      Array.from({ length: 100 }, (_, i) => {
-        const val = String(i + 1);
-        return <option key={val} value={val}>Q{val}</option>;
-      })
-  }
-</select>
+            <select
+              className="scouter-input"
+              value={matchInfo.match}
+              onChange={e => setMatchInfo({ ...matchInfo, match: e.target.value })}
+            >
+              {Object.keys(schedule).length > 0
+                ? Object.entries(schedule)
+                  // 🏆 排序邏輯：QM -> SF -> F
+                  .sort(([keyA, a], [keyB, b]) => {
+                    const weights = { qm: 1, sf: 2, f: 3 };
+                    const levelA = a.comp_level || 'qm';
+                    const levelB = b.comp_level || 'qm';
+
+                    if (weights[levelA] !== weights[levelB]) {
+                      return weights[levelA] - weights[levelB];
+                    }
+                    // 同階段比場次編號
+                    return (a.match_number || 0) - (b.match_number || 0);
+                  })
+                  .map(([mKey, mData]) => {
+                    // 🏆 顯示標籤邏輯
+                    const level = mData.comp_level || 'qm';
+                    const mNum = mData.match_number || mData.match || mKey;
+                    const displayLabel = level === 'qm' ? `Q${mNum}` :
+                      level === 'sf' ? `SF${mData.set_number || mNum}` :
+                        `F${mNum}`;
+
+                    return (
+                      <option key={mKey} value={mKey}>
+                        {displayLabel}
+                      </option>
+                    );
+                  })
+                : // 若無賽程，預設顯示 Q1-Q100
+                Array.from({ length: 100 }, (_, i) => {
+                  const val = String(i + 1);
+                  return <option key={val} value={val}>Q{val}</option>;
+                })
+              }
+            </select>
           </div>
           <div>
             <input
@@ -304,10 +321,35 @@ const matchDisplay = isNaN(matchInfo.match)
             <h2 style={{ margin: 0, color: '#2196F3' }}>{autoFuel}</h2>
           </div>
           {/* 加入手動補錄，以防萬一 */}
-          <div className="scouter-row">
-            <button className="scouter-plus-btn" style={{ backgroundColor: '#FF9800', width: '70px', marginBottom: 0 }} onClick={() => setAutoFuel(autoFuel + loadLevels[currentLoad].value)}>+等級</button>
-            <button className="scouter-plus-btn" style={{ width: '50px', marginBottom: 0 }} onClick={() => setAutoFuel(autoFuel + 1)}>+</button>
+          <div className="scouter-counter-box" style={{ marginTop: '15px' }}>
+            <p>Auto Fuel: <strong style={{ fontSize: '22px', color: '#2196F3' }}>{autoFuel}</strong></p>
+            <div className="scouter-row" style={{ gap: '8px' }}>
+              {/* 第一組：單位 1 */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <button className="scouter-plus-btn" style={{ backgroundColor: '#feb2b2', color: '#9b2c2c', height: '35px', marginBottom: 0 }} onClick={() => setAutoFuel(prev => Math.max(0, prev - 1))}>-1</button>
+                <button className="scouter-plus-btn" style={{ height: '50px' }} onClick={() => setAutoFuel(prev => prev + 1)}>+1</button>
+              </div>
+
+              {/* 第二組：動態等級 (根據選中的少量/中量/大量) */}
+              <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <button className="scouter-plus-btn" style={{ backgroundColor: '#fbd38d', color: '#7b341e', height: '35px', marginBottom: 0 }} onClick={() => setAutoFuel(prev => Math.max(0, prev - loadLevels[currentLoad].value))}>
+                  取消等級 (-{loadLevels[currentLoad].value})
+                </button>
+                <button className="scouter-plus-btn" style={{ backgroundColor: '#4CAF50', height: '50px' }} onClick={() => setAutoFuel(prev => prev + loadLevels[currentLoad].value)}>
+                  完成一趟 (+{loadLevels[currentLoad].value})
+                </button>
+              </div>
+            </div>
           </div>
+
+        </div>
+        <p>Auto Climb Level:</p>
+        <div className="scouter-row">
+          {[0, 1, 2, 3].map(lvl => (
+            <button key={lvl} onClick={() => setAutoClimbLevel(lvl)}
+              className="scouter-level-btn"
+              style={{ backgroundColor: autoClimbLevel === lvl ? '#4CAF50' : '#eee' }}>L{lvl}</button>
+          ))}
         </div>
         <label className="scouter-checkbox-label">
           <input type="checkbox" checked={autoSuccess} onChange={e => setAutoSuccess(e.target.checked)} /> Auto 任務完成
@@ -345,11 +387,25 @@ const matchDisplay = isNaN(matchInfo.match)
           </button>
         </div>
         <div className="scouter-counter">
-          <p>推估 Fuel: {fuelH}</p>
-          <div className="scouter-row" style={{ flexWrap: 'wrap', gap: '5px' }}>
-            <button className="scouter-plus-btn" style={{ backgroundColor: '#FF9800', flex: 1 }} onClick={() => setFuelH(fuelH + 1)}>+1</button>
-            <button className="scouter-plus-btn" style={{ backgroundColor: '#F57C00', flex: 1 }} onClick={() => setFuelH(fuelH + 5)}>+5</button>
-            <button className="scouter-plus-btn" style={{ backgroundColor: '#E65100', flex: 1 }} onClick={() => setFuelH(fuelH + 10)}>+10</button>
+          <p>推估 Fuel: <strong style={{ fontSize: '22px' }}>{fuelH}</strong></p>
+          <div className="scouter-row" style={{ gap: '8px' }}>
+            {/* 單位 1 */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <button className="scouter-plus-btn" style={{ backgroundColor: '#feb2b2', color: '#9b2c2c', height: '35px', marginBottom: 0 }} onClick={() => setFuelH(prev => Math.max(0, prev - 1))}>-1</button>
+              <button className="scouter-plus-btn" style={{ height: '50px' }} onClick={() => setFuelH(prev => prev + 1)}>+1</button>
+            </div>
+
+            {/* 單位 5 */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <button className="scouter-plus-btn" style={{ backgroundColor: '#fbd38d', color: '#7b341e', height: '35px', marginBottom: 0 }} onClick={() => setFuelH(prev => Math.max(0, prev - 5))}>-5</button>
+              <button className="scouter-plus-btn" style={{ backgroundColor: '#FF9800', height: '50px' }} onClick={() => setFuelH(prev => prev + 5)}>+5</button>
+            </div>
+
+            {/* 單位 10 */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <button className="scouter-plus-btn" style={{ backgroundColor: '#fed7d7', color: '#822727', height: '35px', marginBottom: 0 }} onClick={() => setFuelH(prev => Math.max(0, prev - 10))}>-10</button>
+              <button className="scouter-plus-btn" style={{ backgroundColor: '#E65100', height: '50px' }} onClick={() => setFuelH(prev => prev + 10)}>+10</button>
+            </div>
           </div>
         </div>
       </div>
@@ -365,7 +421,16 @@ const matchDisplay = isNaN(matchInfo.match)
               style={{ backgroundColor: climbLevel === lvl ? '#FFC107' : '#eee' }}>L{lvl}</button>
           ))}
         </div>
-        <input className="scouter-input" style={{ marginTop: '10px' }} type="number" placeholder="攀爬秒數" onChange={e => setClimbTime(e.target.value)} />
+        <div className="scouter-timer-box">
+          <p>攀爬秒數: <strong>{climbTime}s</strong></p>
+          <button
+            className="scouter-cycle-btn"
+            style={{ backgroundColor: isClimbTimerRunning ? '#f44336' : '#607D8B' }}
+            onClick={handleClimbTimer}
+          >
+            {isClimbTimerRunning ? "停止計時" : "開始攀爬計時"}
+          </button>
+        </div>
       </div>
 
       {/* 評分與標記 */}
@@ -380,12 +445,37 @@ const matchDisplay = isNaN(matchInfo.match)
             </button>
           ))}
         </div>
-        {Object.keys(ratings).map(r => (
-          <div key={r} style={{ margin: '15px 0' }}>
-            <label>{r === 'driver' ? '駕駛技術' : r === 'defense' ? '防守能力' : '穩定度'}: {ratings[r]}</label>
-            <input type="range" min="1" max="5" value={ratings[r]} onChange={e => setRatings({ ...ratings, [r]: e.target.value })} style={{ width: '100%' }} />
-          </div>
-        ))}
+        {Object.keys(ratings).map(r => {
+          // 定義等級 1~5 的顏色漸層 (紅 -> 橙 -> 黃 -> 淺綠 -> 深綠)
+          const colors = ['#e53e3e', '#dd6b20', '#d69e2e', '#68d391', '#38a169'];
+
+          return (
+            <div key={r} style={{ margin: '20px 0', textAlign: 'left' }}>
+              <label style={{ fontWeight: 'bold', fontSize: '15px' }}>
+                {r === 'driver' ? '👤 駕駛技術' : r === 'defense' ? '🛡️ 防守能力' : '🤖 機器穩定度'}:
+                <span style={{ marginLeft: '10px', color: colors[ratings[r] - 1], fontSize: '18px' }}>
+                  Level {ratings[r]}
+                </span>
+              </label>
+
+              <div className="rating-group">
+                {[1, 2, 3, 4, 5].map(lvl => (
+                  <button
+                    key={lvl}
+                    className={`rating-btn ${ratings[r] === lvl ? 'active' : ''}`}
+                    style={{
+                      backgroundColor: ratings[r] === lvl ? colors[lvl - 1] : '#eee',
+                      color: ratings[r] === lvl ? '#fff' : '#666'
+                    }}
+                    onClick={() => setRatings({ ...ratings, [r]: lvl })}
+                  >
+                    {lvl}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* 底部懸浮欄 */}
