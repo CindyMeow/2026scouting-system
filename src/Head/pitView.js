@@ -121,11 +121,11 @@ const PitViewTab = ({ teams = {}, pitData = [], setSelectedTeam, setActiveSubTab
                     {hasRecord ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <div style={{ display: 'flex', fontSize: '14px' }}>
-                          <span style={{ color: '#a0aec0', width: '70px' }}>底盤:</span>
+                          <span style={{ color: '#a0aec0', width: '70px' }}>Chassis:</span>
                           <span style={{ color: '#2d3748', fontWeight: '600' }}>{scoutingResult.drive || "Swerve"}</span>
                         </div>
                         <div style={{ display: 'flex', fontSize: '14px' }}>
-                          <span style={{ color: '#a0aec0', width: '70px' }}>射手:</span>
+                          <span style={{ color: '#a0aec0', width: '70px' }}>Shooter:</span>
                           <span style={{ color: '#2d3748', fontWeight: '600' }}>{scoutingResult.shooter || "Double"}</span>
                         </div>
                       </div>
