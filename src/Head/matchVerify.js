@@ -1,7 +1,7 @@
 //Head/matchVerify.js
 import React, { useState } from 'react';
 
-const MatchVerifyTab = ({ matchData, toggleVerify, deleteMatch, setSelectedTeam, setActiveSubTab, onUpdateMatch }) => {
+const MatchVerifyTab = ({ matchData = [], toggleVerify, deleteMatch, setSelectedTeam, setActiveSubTab, onUpdateMatch }) => {
   const [editingMatch, setEditingMatch] = useState(null);
   const [tempData, setTempData] = useState({});
 
@@ -23,11 +23,13 @@ const MatchVerifyTab = ({ matchData, toggleVerify, deleteMatch, setSelectedTeam,
       compLevel: match.compLevel || 'qm',
     });
   };
-
-  const handleSave = () => {
+const handleSave = () => {
+    // 檢查是否有正在編輯的資料與更新函式
     if (onUpdateMatch && editingMatch) {
-      onUpdateMatch({
-        ...editingMatch, // 保留 id, autoPath 等隱藏欄位
+      
+      // 1. 先定義更新後的單筆資料 (這一步最重要，不可缺少)
+      const updatedEntry = {
+        ...editingMatch, // 保留原始 id, autoPath 等
         match: tempData.match,
         team: tempData.team,
         station: tempData.station,
@@ -39,7 +41,18 @@ const MatchVerifyTab = ({ matchData, toggleVerify, deleteMatch, setSelectedTeam,
         headNotes: tempData.headNotes,
         compLevel: tempData.compLevel,
         matchKey: `${tempData.compLevel}_${tempData.match}`
-      });
+      };
+
+      // 2. 產生包含更新資料的完整陣列
+      // 這裡會用到上面的 updatedEntry，所以它必須先被定義
+      const updatedFullList = matchData.map(m => 
+        m.id === editingMatch.id ? updatedEntry : m
+      );
+
+      // 3. 執行更新並同步至伺服器
+      onUpdateMatch(updatedFullList);
+      
+      // 4. 關閉編輯彈窗
       setEditingMatch(null);
     }
   };
@@ -62,42 +75,50 @@ const MatchVerifyTab = ({ matchData, toggleVerify, deleteMatch, setSelectedTeam,
           </thead>
 
           <tbody>
-            {matchData && matchData.map(d => {
-              // 定義顯示標籤
-              const levelLabel = d.compLevel === 'sf' ? 'SF' : d.compLevel === 'f' ? 'F' : 'Q';
+            {Array.isArray(matchData) ? (
+              matchData.map(d => {
+                const levelLabel = d.compLevel === 'sf' ? 'SF' : d.compLevel === 'f' ? 'F' : 'Q';
+                return (
+                  <tr key={d.id} style={{ backgroundColor: d.verified ? '#f1f8e9' : '#fff' }}>
+                    <td style={{ fontWeight: 'bold' }}>
+                      {levelLabel}{d.match}
+                    </td>
+                    <td
+                      style={{ fontWeight: 'bold', color: '#2196F3', cursor: 'pointer' }}
+                      onClick={() => { setSelectedTeam(d.team); setActiveSubTab('profile'); }}
+                    >
+                      {d.team}
+                    </td>
+                    <td style={{ fontSize: '12px' }}>{d.station}</td>
+                    <td>{d.fuelH}</td>
+                    <td style={{ color: d.verified ? '#4CAF50' : '#FF9800', fontWeight: '500' }}>
+                      {d.verified ? '● 已確認' : '○ 待核對'}
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button className="btn-action-sm" onClick={() => toggleVerify(d.id)}>
+                          {d.verified ? '取消' : '核准'}
+                        </button>
+                        <button className="btn-action-sm" style={{ backgroundColor: '#e3f2fd', color: '#1976d2' }} onClick={() => startEdit(d)}>
+                          編輯
+                        </button>
+                        <button className="btn-action-sm" style={{ color: '#f44336', backgroundColor: '#ffebee' }} onClick={() => deleteMatch(d.id)}>
+                          刪除
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
 
-              return (
-                <tr key={d.id} style={{ backgroundColor: d.verified ? '#f1f8e9' : '#fff' }}>
-                  <td style={{ fontWeight: 'bold' }}>
-                    {levelLabel}{d.match}
-                  </td>
-                  <td
-                    style={{ fontWeight: 'bold', color: '#2196F3', cursor: 'pointer' }}
-                    onClick={() => { setSelectedTeam(d.team); setActiveSubTab('profile'); }}
-                  >
-                    {d.team}
-                  </td>
-                  <td style={{ fontSize: '12px' }}>{d.station}</td>
-                  <td>{d.fuelH}</td>
-                  <td style={{ color: d.verified ? '#4CAF50' : '#FF9800', fontWeight: '500' }}>
-                    {d.verified ? '● 已確認' : '○ 待核對'}
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button className="btn-action-sm" onClick={() => toggleVerify(d.id)}>
-                        {d.verified ? '取消' : '核准'}
-                      </button>
-                      <button className="btn-action-sm" style={{ backgroundColor: '#e3f2fd', color: '#1976d2' }} onClick={() => startEdit(d)}>
-                        編輯
-                      </button>
-                      <button className="btn-action-sm" style={{ color: '#f44336', backgroundColor: '#ffebee' }} onClick={() => deleteMatch(d.id)}>
-                        刪除
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
+
+                );
+              })
+            ) : (
+              <tr>
+                <td colSpan="6" style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+                  暫無比賽數據或數據載入中...
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

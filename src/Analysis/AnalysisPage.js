@@ -1,8 +1,9 @@
-import React, { useState ,useEffect} from 'react';
+import React, { useState, useEffect } from 'react';
 import AnalysisTab from './AnalysisTab';
 import SimulatorTab from './SimulatorTab';
 import RadarTab from './RadarTab';
 import PicklistTab from './PicklistTab';
+import TeamHistoryTab from './TeamHistoryTab';
 
 const AnalysisPage = ({ allTeamsData, coprData, onTeamClick }) => {
   // 控制目前顯示哪一個分析工具
@@ -21,7 +22,7 @@ const AnalysisPage = ({ allTeamsData, coprData, onTeamClick }) => {
     teamA: '',
     teamB: ''
   });
-  
+
   // 3. ✨ 初始化 Picklist：當 allTeamsData 載入時，將所有隊伍填入 'all' 欄位
   useEffect(() => {
     if (allTeamsData?.teams && pickLists.all.length === 0) {
@@ -35,34 +36,37 @@ const AnalysisPage = ({ allTeamsData, coprData, onTeamClick }) => {
     switch (activeTab) {
       case 'table':
         return (
-          <AnalysisTab 
-            allTeamsData={allTeamsData} 
-            coprData={coprData} 
-            onTeamClick={onTeamClick} 
+          <AnalysisTab
+            allTeamsData={allTeamsData}
+            coprData={coprData}
+            onTeamClick={onTeamClick}
           />
         );
       case 'simulator':
-        return <SimulatorTab 
-            allTeamsData={allTeamsData} 
-            coprData={coprData} 
-            alliance={alliance}        // ✨ 傳入狀態
-            setAlliance={setAlliance}  // ✨ 傳入修改狀態的 function
-          />;
+        return <SimulatorTab
+          allTeamsData={allTeamsData}
+          coprData={coprData}
+          alliance={alliance}        // ✨ 傳入狀態
+          setAlliance={setAlliance}  // ✨ 傳入修改狀態的 function
+        />;
       case 'radar':
         return (
-          <RadarTab 
-            allTeamsData={allTeamsData} 
-            coprData={coprData} 
+          <RadarTab
+            allTeamsData={allTeamsData}
+            coprData={coprData}
             radarTeams={radarTeams}
             setRadarTeams={setRadarTeams}
           />
         );
       case 'picklist':
-        return <PicklistTab 
-            allTeamsData={allTeamsData} 
-            lists={pickLists}          // ✨ 同理
-            setLists={setPickLists} 
-          />;
+        return <PicklistTab
+          allTeamsData={allTeamsData}
+          lists={pickLists}          // ✨ 同理
+          setLists={setPickLists}
+        />;
+
+      case 'history': // ✨ 新增 case
+        return <TeamHistoryTab coprData={coprData} />;
       default:
         return null;
     }
@@ -72,22 +76,27 @@ const AnalysisPage = ({ allTeamsData, coprData, onTeamClick }) => {
     <div className="analysis-container" style={{ padding: '20px' }}>
       {/* 頂部功能導航列 */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-        <button 
-          className={`btn-action-sm ${activeTab === 'table' ? 'active' : ''}`} 
+        <button
+          className={`btn-action-sm ${activeTab === 'table' ? 'active' : ''}`}
           onClick={() => setActiveTab('table')}
         >1. 分析表格</button>
-        <button 
-          className={`btn-action-sm ${activeTab === 'simulator' ? 'active' : ''}`} 
+        <button
+          className={`btn-action-sm ${activeTab === 'simulator' ? 'active' : ''}`}
           onClick={() => setActiveTab('simulator')}
         >2. 聯盟模擬器</button>
-        <button 
-          className={`btn-action-sm ${activeTab === 'radar' ? 'active' : ''}`} 
+        <button
+          className={`btn-action-sm ${activeTab === 'radar' ? 'active' : ''}`}
           onClick={() => setActiveTab('radar')}
         >3. 選秀雷達圖</button>
-        <button 
-          className={`btn-action-sm ${activeTab === 'picklist' ? 'active' : ''}`} 
+        <button
+          className={`btn-action-sm ${activeTab === 'picklist' ? 'active' : ''}`}
           onClick={() => setActiveTab('picklist')}
         >4. Picks 名單順序</button>
+        <button
+          className={`btn-action-sm ${activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => setActiveTab('history')}
+          style={{ backgroundColor: '#9b59b6', color: 'white' }}
+        >5. 賽前情資 (TBA)</button>
       </div>
 
       {/* 顯示選中的分頁內容 */}

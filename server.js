@@ -53,7 +53,7 @@ const initSystem = () => {
 initSystem();
 
 // TBA 設定
-const TBA_API_KEY = process.env.TBA_API_KEY; 
+const TBA_API_KEY = process.env.TBA_API_KEY;
 const TBA_BASE_URL = 'https://www.thebluealliance.com/api/v3';
 
 // --- API 路由 ---
@@ -240,7 +240,7 @@ app.get('/api/stats/team-epa/:teamNumber', async (req, res) => {
     const teamNum = req.params.teamNumber.replace('frc', '');
     const response = await axios.get(`https://api.statbotics.io/v3/team_year/${teamNum}/2026`);
     const data = response.data;
-    
+
     // 對應 V3 結構回傳
     res.json({
       total_epa: data.epa?.total || 0,
@@ -248,66 +248,86 @@ app.get('/api/stats/team-epa/:teamNumber', async (req, res) => {
       teleop_epa: (data.epa?.total || 0) - (data.epa?.auto || 0),
       percentile: data.percentile || 0
     });
-  } catch (error) { 
-    res.status(500).send("EPA V3 Error"); 
+  } catch (error) {
+    res.status(500).send("EPA V3 Error");
   }
 });
 
 //同步TBA路由
 app.get('/api/sync-external', async (req, res) => {
   try {
-    // 1. 讀取賽程以獲取隊伍名單
     const scheduleData = JSON.parse(fs.readFileSync(paths.SCHEDULE_FILE, 'utf8'));
     const teamSet = new Set();
     const matches = Array.isArray(scheduleData) ? scheduleData : Object.values(scheduleData);
-
     matches.forEach(m => {
-      [m.red1, m.red2, m.red3, m.blue1, m.blue2, m.blue3].forEach(t => {
-        if (t) teamSet.add(Number(t));
-      });
+      [m.red1, m.red2, m.red3, m.blue1, m.blue2, m.blue3].forEach(t => { if (t) teamSet.add(Number(t)); });
     });
 
     const teamList = Array.from(teamSet);
     const syncResults = [];
+    const config = { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } };
 
-    console.log(`📡 使用 Statbotics V3 API 同步 ${teamList.length} 支隊伍...`);
+    console.log(`📡 開始深度同步 ${teamList.length} 支隊伍...`);
 
-    // 2. 遍歷隊伍抓取 V3 數據
     for (const teamNum of teamList) {
       try {
-        const cleanNumber = String(teamNum).replace('frc', '');
-        const response = await axios.get(`https://api.statbotics.io/v3/team_year/${cleanNumber}/2026`);
-        const data = response.data;
+        const cleanNumber = String(teamNum);
+        
+        // 1. Statbotics V3 深度抓取
+        const epaRes = await axios.get(`https://api.statbotics.io/v3/team_year/${cleanNumber}/2026`).catch(() => null);
+        
+        // 2. TBA 基礎資訊
+        const tbaRes = await axios.get(`${TBA_BASE_URL}/team/frc${cleanNumber}`, config).catch(() => null);
 
-        // V3 的結構通常是 data.epa.breakdown 或 data.epa.total
-        // 為了安全，我們使用可選鏈運算符 (?.) 並提供備份欄位
-        const totalEpa = data.epa?.total || data.epa_end || 0;
-        const autoEpa = data.epa?.auto || data.auto_epa_end || 0;
+        // 3. TBA 歷史賽事 (保持原本邏輯)
+        let history = [];
+        try {
+          const statusRes = await axios.get(`${TBA_BASE_URL}/team/frc${cleanNumber}/events/2026/statuses`, config);
+          const eventKeys = Object.keys(statusRes.data || {});
+          for (const eKey of eventKeys) {
+            const oprRes = await axios.get(`${TBA_BASE_URL}/event/${eKey}/oprs`, config);
+            history.push({
+              event: eKey,
+              rank: statusRes.data[eKey]?.qual?.ranking?.rank || "-",
+              opr: (oprRes.data?.oprs?.[`frc${cleanNumber}`] || 0).toFixed(1),
+              record: statusRes.data[eKey]?.qual?.ranking?.record || { wins: 0, losses: 0, ties: 0 }
+            });
+          }
+        } catch (e) { /* skip history error */ }
+
+        // ✨ 數據解析 (Statbotics V3)
+        const sData = epaRes?.data || {};
+        const epaB = sData.epa?.breakdown || {};
+        const ranks = sData.epa?.ranks || {};
 
         syncResults.push({
           team_number: Number(cleanNumber),
-          EPA: Number(totalEpa.toFixed(1)),
-          auto_EPA: Number(autoEpa.toFixed(1)),
-          teleop_EPA: Number((totalEpa - autoEpa).toFixed(1)),
-          OPR: 0,
+          nickname: tbaRes?.data?.nickname || sData.name || `Team ${cleanNumber}`,
+          
+          // 地理與排名資訊
+          country: sData.country || "N/A",
+          state: sData.state || "N/A",
+          world_rank: ranks.total?.rank || "-", // ✨ 你需要的世界排名
+          percentile: (ranks.total?.percentile * 100)?.toFixed(1) + "%" || "N/A",
+
+          // 詳細 EPA 拆解
+          EPA: Number((epaB.total_points || 0).toFixed(1)),
+          auto_EPA: Number((epaB.auto_points || 0).toFixed(1)),
+          teleop_EPA: Number((epaB.teleop_points || 0).toFixed(1)),
+          endgame_EPA: Number((epaB.endgame_points || 0).toFixed(1)),
+          
+          OPR: history.length > 0 ? (history.reduce((a, b) => a + Number(b.opr), 0) / history.length).toFixed(1) : 0,
+          history: history,
           last_updated: new Date().toISOString()
         });
-      } catch (err) {
-        // 如果該隊伍在 2026 真的完全還沒有 EPA 數據，我們記錄為 0
-        syncResults.push({ team_number: teamNum, EPA: 0, auto_EPA: 0, teleop_EPA: 0, OPR: 0 });
-      }
+
+        await new Promise(r => setTimeout(r, 100)); 
+      } catch (err) { console.error(`Team ${teamNum} 發生錯誤:`, err.message); }
     }
 
-    // 3. 寫入到路徑配置指向的檔案
     fs.writeFileSync(paths.COPR_FILE, JSON.stringify(syncResults, null, 2));
-
-    // 💡 同時寫入一份到根目錄的 copr_data.json 以防萬一
-    fs.writeFileSync('./copr_data.json', JSON.stringify(syncResults, null, 2));
-
-    res.json({ message: "2026 數據同步完成", count: syncResults.length });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    res.json({ message: "深度情資同步完成", count: syncResults.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.listen(PORT, '0.0.0.0', () => {

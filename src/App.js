@@ -13,20 +13,26 @@ function App() {
   const [selectedTeam, setSelectedTeam] = useState(null);
   useEffect(() => {
     const fetchData = async () => {
-      try {
-        const response = await fetch(`http://${window.location.hostname}:5000/api/data`);
-        const data = await response.json();
+  try {
+    const response = await fetch(`http://${window.location.hostname}:5000/api/data`);
+    const data = await response.json();
 
-        // 1. 存入 HeadScoutPage 需要的隊伍清單
-        if (data.teams) setTeams(data.teams);
-        
-        // 2. ✨ 存入 AnalysisPage 需要的完整數據 (含 matchData, pitData)
-        setMasterData(data); 
-        
-      }catch (err) {
-        console.error("初始化抓取失敗:", err);
-      }
-    };
+    if (data && typeof data === 'object') {
+      if (data.teams) setTeams(data.teams);
+      
+      // 確保即使後端沒資料，也會傳入空陣列而不是 undefined
+      setMasterData({
+        matchData: Array.isArray(data.matchData) ? data.matchData : [],
+        pitData: Array.isArray(data.pitData) ? data.pitData : [],
+        teams: data.teams || {}
+      });
+    }
+  } catch (err) {
+    console.error("初始化抓取失敗:", err);
+    // 發生錯誤時保持結構完整，避免下游組件崩潰
+    setMasterData({ matchData: [], pitData: [] });
+  }
+};
     const fetchCopr = async () => {
       try {
         const res = await fetch(`http://${window.location.hostname}:5000/api/copr`);

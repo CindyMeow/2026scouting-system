@@ -148,29 +148,32 @@ const HeadScoutPage = ({ teams: tbaTeams, setTeams, externalTeam }) => {
   // 6. 數據分析與 Profile 計算
   const getAnalysis = useMemo(() => {
     const teamsObj = {};
-    matchData.forEach(d => {
-      const t = String(d.team);
-      if (!teamsObj[t]) teamsObj[t] = [];
-      teamsObj[t].push(d);
-    });
+    if (!Array.isArray(matchData)) {
+    return []; 
+  }
+   matchData.forEach(d => {
+    const t = String(d.team);
+    if (!teamsObj[t]) teamsObj[t] = [];
+    teamsObj[t].push(d);
+  });
 
-    return Object.keys(teamsObj)
-      .filter(num => num.includes(filterTeam))
-      .map(num => {
-        const teamMatches = teamsObj[num];
-        const mCount = teamMatches.length;
-        const totalAuto = teamMatches.reduce((s, m) => s + (Number(m.autoFuel) || 0), 0);
-        const totalTele = teamMatches.reduce((s, m) => s + (Number(m.fuelH) || 0), 0);
-        return {
-          team: num,
-          matches: mCount,
-          avgAutoFuel: (totalAuto / mCount).toFixed(1),
-          avgFuel: (totalTele / mCount).toFixed(1),
-          avgTotal: ((totalAuto + totalTele) / mCount).toFixed(1),
-          autoPct: ((teamMatches.filter(m => m.autoSuccess).length / mCount) * 100).toFixed(0) + "%"
-        };
-      }).sort((a, b) => b.avgFuel - a.avgFuel);
-  }, [matchData, filterTeam]);
+  return Object.keys(teamsObj)
+    .filter(num => num.includes(filterTeam))
+    .map(num => {
+      const teamMatches = teamsObj[num];
+      const mCount = teamMatches.length;
+      const totalAuto = teamMatches.reduce((s, m) => s + (Number(m.autoFuel) || 0), 0);
+      const totalTele = teamMatches.reduce((s, m) => s + (Number(m.fuelH) || 0), 0);
+      return {
+        team: num,
+        matches: mCount,
+        avgAutoFuel: (totalAuto / mCount).toFixed(1),
+        avgFuel: (totalTele / mCount).toFixed(1),
+        avgTotal: ((totalAuto + totalTele) / mCount).toFixed(1),
+        autoPct: ((teamMatches.filter(m => m.autoSuccess).length / mCount) * 100).toFixed(0) + "%"
+      };
+    }).sort((a, b) => b.avgFuel - a.avgFuel);
+}, [matchData, filterTeam]);
   const profileData = useMemo(() => {
     if (!selectedTeam) return null;
 
