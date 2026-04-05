@@ -9,6 +9,7 @@ import MatchVerifyTab from './matchVerify';
 import ProfileTab from './profile';
 import ScheduleTab from './scheduleTab';
 import AssignmentTab from './assignmentTab';
+import EventSwitcher from './EventSwitcher';
 
 import '../css/HeadScout.css';
 
@@ -149,31 +150,31 @@ const HeadScoutPage = ({ teams: tbaTeams, setTeams, externalTeam }) => {
   const getAnalysis = useMemo(() => {
     const teamsObj = {};
     if (!Array.isArray(matchData)) {
-    return []; 
-  }
-   matchData.forEach(d => {
-    const t = String(d.team);
-    if (!teamsObj[t]) teamsObj[t] = [];
-    teamsObj[t].push(d);
-  });
+      return [];
+    }
+    matchData.forEach(d => {
+      const t = String(d.team);
+      if (!teamsObj[t]) teamsObj[t] = [];
+      teamsObj[t].push(d);
+    });
 
-  return Object.keys(teamsObj)
-    .filter(num => num.includes(filterTeam))
-    .map(num => {
-      const teamMatches = teamsObj[num];
-      const mCount = teamMatches.length;
-      const totalAuto = teamMatches.reduce((s, m) => s + (Number(m.autoFuel) || 0), 0);
-      const totalTele = teamMatches.reduce((s, m) => s + (Number(m.fuelH) || 0), 0);
-      return {
-        team: num,
-        matches: mCount,
-        avgAutoFuel: (totalAuto / mCount).toFixed(1),
-        avgFuel: (totalTele / mCount).toFixed(1),
-        avgTotal: ((totalAuto + totalTele) / mCount).toFixed(1),
-        autoPct: ((teamMatches.filter(m => m.autoSuccess).length / mCount) * 100).toFixed(0) + "%"
-      };
-    }).sort((a, b) => b.avgFuel - a.avgFuel);
-}, [matchData, filterTeam]);
+    return Object.keys(teamsObj)
+      .filter(num => num.includes(filterTeam))
+      .map(num => {
+        const teamMatches = teamsObj[num];
+        const mCount = teamMatches.length;
+        const totalAuto = teamMatches.reduce((s, m) => s + (Number(m.autoFuel) || 0), 0);
+        const totalTele = teamMatches.reduce((s, m) => s + (Number(m.fuelH) || 0), 0);
+        return {
+          team: num,
+          matches: mCount,
+          avgAutoFuel: (totalAuto / mCount).toFixed(1),
+          avgFuel: (totalTele / mCount).toFixed(1),
+          avgTotal: ((totalAuto + totalTele) / mCount).toFixed(1),
+          autoPct: ((teamMatches.filter(m => m.autoSuccess).length / mCount) * 100).toFixed(0) + "%"
+        };
+      }).sort((a, b) => b.avgFuel - a.avgFuel);
+  }, [matchData, filterTeam]);
   const profileData = useMemo(() => {
     if (!selectedTeam) return null;
 
@@ -363,6 +364,10 @@ const HeadScoutPage = ({ teams: tbaTeams, setTeams, externalTeam }) => {
           <h2>FRC 2026</h2>
           <p>Head Scout System</p>
         </div>
+        <div className="sidebar-switcher-section" style={{ padding: '0 10px 15px 10px' }}>
+          <EventSwitcher />
+        </div>
+        <div className="sidebar-divider" style={{ height: '1px', background: '#ffffff22', margin: '0 15px 15px 15px' }}></div>
         {[
           { id: 'import', label: '📥 資料匯入' },
           { id: 'pitView', label: '🛠️ Pit 資料庫' },

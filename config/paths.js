@@ -1,20 +1,24 @@
 // config/paths.js
 const path = require('path');
 
-const ROOT_DATA = path.join(__dirname, '..', 'data');
+// 取得目前的賽事代碼，例如 '2026txcle'
+const getEventBase = () => {
+  const eventKey = process.env.CURRENT_EVENT || '2026txcle';
+  return path.join(__dirname, '..', 'data', eventKey);
+};
 
 module.exports = {
-  // 核心目錄
-  DATA_DIR: ROOT_DATA,
+  // 核心目錄 Getter
+  get EVENT_DIR() { return getEventBase(); },
   
-  // 靜態資料 (賽程與隊伍清單)
-  SCHEDULE_FILE: path.join(ROOT_DATA, 'static', 'schedule.json'),
-  TEAMS_FILE: path.join(ROOT_DATA, 'static', 'teams_db.json'),
+  // 1. Static: 賽程與原始隊伍清單 (該賽事專屬)
+  get SCHEDULE_FILE() { return path.join(getEventBase(), 'static', 'schedule.json'); },
+  get TEAMS_FILE() { return path.join(getEventBase(), 'static', 'teams_db.json'); },
   
-  // 動態資料 (Scouting 數據與排班)
-  DB_FILE: path.join(ROOT_DATA, 'dynamic', 'head_master_db.json'),
-  ASSIGNMENT_FILE: path.join(ROOT_DATA, 'dynamic', 'assignments.json'),
+  // 2. Dynamic: 本地 Scouting 數據與排班
+  get DB_FILE() { return path.join(getEventBase(), 'dynamic', 'head_master_db.json'); },
+  get ASSIGNMENT_FILE() { return path.join(getEventBase(), 'dynamic', 'assignments.json'); },
   
-  // 外部快取 (TBA/Statbotics)
-  COPR_FILE: path.join(ROOT_DATA, 'external', 'copr_data.json')
+  // 3. External: 外部 API 快取 (TBA/Statbotics)
+  get COPR_FILE() { return path.join(getEventBase(), 'external', 'copr_data.json'); }
 };
