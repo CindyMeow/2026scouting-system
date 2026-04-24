@@ -15,7 +15,7 @@ const paths = require('./config/paths');
 
 const app = express();
 // 優先使用 .env 裡的 PORT，否則預設 5000
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.SERVER_PORT || 5000;
 
 // 解析設定
 app.use(bodyParser.json({ limit: '100mb' }));

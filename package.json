@@ -1,7 +1,7 @@
 {
   "name": "2026-scouting-system",
   "version": "0.1.0",
-  "proxy": "http://localhost:5000",
+  "proxy": "http://localhost:5001",
   "dependencies": {
     "axios": "^1.14.0",
     "body-parser": "^2.2.2",
@@ -18,7 +18,7 @@
   },
   "scripts": {
     "start": "concurrently \"npm run server\" \"npm run client\"",
-    "client": "PORT=3000 react-scripts start",
+    "client": "react-scripts start",
     "server": "nodemon server.js",
     "build": "react-scripts build"
   },
