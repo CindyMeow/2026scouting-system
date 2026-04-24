@@ -24,7 +24,7 @@ app.use(cors());
 
 // --- 初始化目錄與檔案區塊 ---
 const initSystem = () => {
-  // 取得基礎目錄 (e.g., data/2026txcle)
+  // 取得基礎目錄 (e.g., data/2026dal)
   const baseDir = paths.EVENT_DIR;
 
   // 定義需要建立的子目錄結構
@@ -59,7 +59,7 @@ const initSystem = () => {
 // 務必在 API 定義前執行一次
 initSystem();
 const getYear = () => process.env.CURRENT_YEAR || '2026';
-const getEvent = () => process.env.CURRENT_EVENT || '2026txcle';
+const getEvent = () => process.env.CURRENT_EVENT || '2026dal';
 
 // TBA 設定
 const TBA_API_KEY = process.env.TBA_API_KEY;
@@ -262,105 +262,125 @@ app.get('/api/stats/team-epa/:teamNumber', async (req, res) => {
   }
 });
 
+// 3. 官方比分同步 (從 TBA 抓取真實結果)
+app.get('/api/sync-tba-matches', async (req, res) => {
+    try {
+        const eventKey = getEvent();
+        const config = { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } };
+        
+        const response = await axios.get(`${TBA_BASE_URL}/event/${eventKey}/matches`, config);
+        const tbaMatches = response.data;
+        let localSchedule = JSON.parse(fs.readFileSync(paths.SCHEDULE_FILE, 'utf8'));
+
+        tbaMatches.forEach(tbaMatch => {
+            const mNum = tbaMatch.match_number;
+            const mKey = String(mNum);
+            
+            if (localSchedule[mKey]) {
+                localSchedule[mKey] = {
+                    ...localSchedule[mKey],
+                    red_score: tbaMatch.alliances.red.score,
+                    blue_score: tbaMatch.alliances.blue.score,
+                    redRP: tbaMatch.score_breakdown?.red?.rp || 0,
+                    blueRP: tbaMatch.score_breakdown?.blue?.rp || 0,
+                    is_official: true
+                };
+            }
+        });
+
+        fs.writeFileSync(paths.SCHEDULE_FILE, JSON.stringify(localSchedule, null, 2));
+        res.json({ message: "Official scores synced", count: tbaMatches.length });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 //同步TBA路由
 
 app.get('/api/sync-external', async (req, res) => {
   try {
     const year = getYear();
-    const currentEvent = getEvent();
     const config = { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } };
     
-    // 1. 讀取目前賽事的賽程，獲取隊伍清單
-    if (!fs.existsSync(paths.SCHEDULE_FILE)) {
-        return res.status(400).json({ error: "尚未匯入賽程，無法取得隊伍清單" });
+    let teamList = [];
+    if (fs.existsSync(paths.TEAMS_FILE)) {
+        const teamsData = JSON.parse(fs.readFileSync(paths.TEAMS_FILE, 'utf8'));
+        teamList = Array.isArray(teamsData) ? teamsData : Object.keys(teamsData);
     }
-    const scheduleData = JSON.parse(fs.readFileSync(paths.SCHEDULE_FILE, 'utf8'));
-    const teamSet = new Set();
-    const matches = Array.isArray(scheduleData) ? scheduleData : Object.values(scheduleData);
-    matches.forEach(m => {
-      [m.red1, m.red2, m.red3, m.blue1, m.blue2, m.blue3].forEach(t => { if (t) teamSet.add(Number(t)); });
-    });
 
-    const teamList = Array.from(teamSet);
     const syncResults = [];
+    console.log(`📡 深度同步開始...`);
 
-    console.log(`📡 開始同步賽事 ${currentEvent} (${year}) 共 ${teamList.length} 支隊伍...`);
-
-    for (const teamNum of teamList) {
+    for (const team of teamList) {
       try {
-        const cleanNumber = String(teamNum);
-        const teamKey = `frc${cleanNumber}`;
+        const teamNum = typeof team === 'object' ? (team.team_number || team.number) : team;
+        const teamKey = `frc${teamNum}`;
         
-        // 🚀 A. 抓取 Statbotics V3 EPA
-        const epaRes = await axios.get(`https://api.statbotics.io/v3/team_year/${cleanNumber}/${year}`).catch(() => null);
-        
-        // 🚀 B. 抓取 TBA 隊伍基本資料 (修正點：必須先定義 tbaRes)
-        const tbaRes = await axios.get(`${TBA_BASE_URL}/team/${teamKey}`, config).catch(() => null);
+        const [epaRes, tbaRes, statusRes] = await Promise.all([
+          axios.get(`https://api.statbotics.io/v3/team_year/${teamNum}/${year}`).catch(() => null),
+          axios.get(`${TBA_BASE_URL}/team/${teamKey}`, config).catch(() => null),
+          axios.get(`${TBA_BASE_URL}/team/${teamKey}/events/${year}/statuses`, config).catch(() => ({ data: {} }))
+        ]);
 
-        // 🚀 C. 抓取 TBA 賽事往績
-        let history = [];
-        const eventStatusRes = await axios.get(`${TBA_BASE_URL}/team/${teamKey}/events/${year}/statuses`, config).catch(() => ({ data: {} }));
-        
-        const eventKeys = Object.keys(eventStatusRes.data || {});
-        for (const eKey of eventKeys) {
-            try {
-                const oprRes = await axios.get(`${TBA_BASE_URL}/event/${eKey}/oprs`, config);
-                history.push({
-                    event: eKey,
-                    rank: eventStatusRes.data[eKey]?.qual?.ranking?.rank || "-",
-                    opr: (oprRes.data?.oprs?.[teamKey] || 0).toFixed(1),
-                    record: eventStatusRes.data[eKey]?.qual?.ranking?.record || { wins: 0, losses: 0, ties: 0 }
-                });
-            } catch (e) { console.warn(`無法取得 ${teamKey} 在 ${eKey} 的 OPR`); }
-        }
-
-        // ✨ 數據解析 (Statbotics V3)
         const sData = epaRes?.data || {};
-        const epaB = sData.epa?.breakdown || {};
-        const ranks = sData.epa?.ranks || {};
+        const epaB = sData.epa?.breakdown || {}; // Statbotics V3 主要數據區
+        const ranks = sData.epa?.ranks?.total || {};
+
+        // ✨ 修正：從參賽紀錄中計算平均 OPR (如果有的話)
+        const eventStatuses = statusRes.data || {};
+        let totalOPR = 0;
+        let eventCount = 0;
+
+        const history = Object.keys(eventStatuses).map(eKey => {
+            const status = eventStatuses[eKey];
+            // 試著從 status 獲取該賽事的 OPR (有些 API 會直接附帶)
+            const opr = status?.qual?.ranking?.sort_orders?.[0] || 0; 
+            if (opr > 0) { totalOPR += opr; eventCount++; }
+
+            return {
+                event: eKey,
+                rank: status?.qual?.ranking?.rank || "-",
+                record: status?.qual?.ranking?.record || { wins: 0, losses: 0, ties: 0 },
+                opr: opr.toFixed(1)
+            };
+        });
+
+        // 🛠️ 核心修正：確保 EPA 路徑正確
+        const calculatedTotal = Number(epaB.total_points || sData.epa?.total || 0);
 
         syncResults.push({
-          team_number: Number(cleanNumber),
-          nickname: tbaRes?.data?.nickname || sData.name || `Team ${cleanNumber}`,
-          
-          // 地理與排名資訊
-          country: tbaRes?.data?.country || sData.country || "N/A",
-          state: tbaRes?.data?.state_prov || sData.state || "N/A",
-          world_rank: ranks.total?.rank || "-", 
-          percentile: ranks.total?.percentile ? (ranks.total.percentile * 100).toFixed(1) + "%" : "N/A",
+          team_number: Number(teamNum),
+          nickname: tbaRes?.data?.nickname || sData.name || `Team ${teamNum}`,
+          country: tbaRes?.data?.country || sData.country || "/",
+          state: tbaRes?.data?.state_prov || sData.state || "/",
+          world_rank: ranks.rank || "-", 
+          percentile: ranks.percentile ? (ranks.percentile * 100).toFixed(1) + "%" : "N/A",
 
-          // 詳細 EPA 拆解
-          EPA: Number((epaB.total_points || 0).toFixed(1)),
+          // 📊 關鍵數據 (確保 Key 名稱與前端 Table 對齊)
+          EPA: Number(calculatedTotal.toFixed(1)), 
           auto_EPA: Number((epaB.auto_points || 0).toFixed(1)),
           teleop_EPA: Number((epaB.teleop_points || 0).toFixed(1)),
           endgame_EPA: Number((epaB.endgame_points || 0).toFixed(1)),
+          OPR: eventCount > 0 ? (totalOPR / eventCount).toFixed(1) : "0.0",
           
-          OPR: history.length > 0 ? (history.reduce((a, b) => a + Number(b.opr), 0) / history.length).toFixed(1) : 0,
           history: history,
           last_updated: new Date().toISOString()
         });
 
-        // 避免 API 速率限制 (Rate Limit)
-        await new Promise(r => setTimeout(r, 150)); 
-      } catch (err) { 
-          console.error(`Team ${teamNum} 處理失敗:`, err.message); 
-      }
+        process.stdout.write(`✅ ${teamNum} `);
+        await new Promise(r => setTimeout(r, 200)); 
+      } catch (err) { console.error(`\n❌ Team ${team} 失敗:`, err.message); }
     }
 
     fs.writeFileSync(paths.COPR_FILE, JSON.stringify(syncResults, null, 2));
-    console.log(`✅ 同步完成，共存儲 ${syncResults.length} 筆數據。`);
-    res.json({ message: "深度情資同步完成", count: syncResults.length });
+    res.json({ message: "深度同步完成", count: syncResults.length });
 
-  } catch (err) { 
-    console.error("同步主邏輯錯誤:", err);
-    res.status(500).json({ error: err.message }); 
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 // A. 取得目前配置
 app.get('/api/system/config', (req, res) => {
   res.json({
     year: process.env.CURRENT_YEAR || '2026',
-    eventKey: process.env.CURRENT_EVENT || '2026txcle'
+    eventKey: process.env.CURRENT_EVENT || '2026dal'
   });
 });
 
