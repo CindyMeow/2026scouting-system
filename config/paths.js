@@ -3,7 +3,7 @@ const path = require('path');
 
 // 取得目前的賽事代碼，例如 '2026txcle'
 const getEventBase = () => {
-  const eventKey = process.env.CURRENT_EVENT || '2026txcle';
+  const eventKey = process.env.CURRENT_EVENT || '2026dal';
   return path.join(__dirname, '..', 'data', eventKey);
 };
 
