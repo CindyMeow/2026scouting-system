@@ -66,7 +66,16 @@ const AnalysisPage = ({ allTeamsData, coprData, onTeamClick }) => {
         />;
 
       case 'history': // ✨ 新增 case
-        return <TeamHistoryTab coprData={coprData} />;
+        return (
+          <div>
+           
+            <TeamHistoryTab
+              coprData={coprData}
+              setActiveTab={() => { }} // 因為 handleViewProfile 已經處理了切換，這裡可以傳空或不傳
+              setSelectedTeam={onTeamClick} // ✨ 關鍵：把 App.js 的 handleViewProfile 傳給它
+            />
+          </div>
+        );
       default:
         return null;
     }
