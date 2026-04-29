@@ -127,11 +127,11 @@ const ScheduleTab = ({ schedule, setSchedule, onSyncOfficial, onTeamClick }) => 
 
                             // 🏆 定義比賽階段的權重
                             const levelWeight = {
-                                'qm': 1, // Qualification 最先
-                                'sf': 2, // Semifinals 次之
-                                'f': 3   // Finals 最後
+                                'pt': 0, // Practice Match 排在最前
+                                'qm': 1,
+                                'sf': 2,
+                                'f': 3
                             };
-
                             const levelA = matchA.comp_level || 'qm';
                             const levelB = matchB.comp_level || 'qm';
 
@@ -158,6 +158,7 @@ const ScheduleTab = ({ schedule, setSchedule, onSyncOfficial, onTeamClick }) => 
                             const mNum = match.match_number || match.match || mKey;
                             // 顯示標籤邏輯
                             let displayLabel = `Q${mNum}`;
+                            if (level === 'pt') displayLabel = `P${mNum}`; // 新增 Practice 顯示
                             if (level === 'sf') displayLabel = `SF${match.set_number || mNum}`;
                             if (level === 'f') displayLabel = `F${mNum}`;
 

@@ -93,7 +93,7 @@ const ScouterPage = () => {
     if (Object.keys(schedule).length > 0 && !matchInfo.match) {
       // 取得排序後的第一個 Key
       const firstMatchKey = Object.entries(schedule).sort(([ka, a], [kb, b]) => {
-        const weights = { qm: 1, sf: 2, f: 3 };
+        const weights = { pt: 0, qm: 1, sf: 2, f: 3 };
         if (weights[a.comp_level] !== weights[b.comp_level]) return weights[a.comp_level] - weights[b.comp_level];
         return (a.match_number || 0) - (b.match_number || 0);
       })[0][0];
@@ -240,9 +240,11 @@ const ScouterPage = () => {
                     // 🏆 顯示標籤邏輯
                     const level = mData.comp_level || 'qm';
                     const mNum = mData.match_number || mData.match || mKey;
-                    const displayLabel = level === 'qm' ? `Q${mNum}` :
-                      level === 'sf' ? `SF${mData.set_number || mNum}` :
-                        `F${mNum}`;
+                    const displayLabel =
+                      level === 'pt' ? `P${mNum}` :   // Practice 顯示 P1, P2...
+                        level === 'qm' ? `Q${mNum}` :
+                          level === 'sf' ? `SF${mData.set_number || mNum}` :
+                            `F${mNum}`;
 
                     return (
                       <option key={mKey} value={mKey}>

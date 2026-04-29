@@ -1,3 +1,4 @@
+//AnalysisPage.js
 import React, { useState, useEffect } from 'react';
 import AnalysisTab from './AnalysisTab';
 import SimulatorTab from './SimulatorTab';
@@ -5,7 +6,7 @@ import RadarTab from './RadarTab';
 import PicklistTab from './PicklistTab';
 import TeamHistoryTab from './TeamHistoryTab';
 
-const AnalysisPage = ({ allTeamsData, coprData, onTeamClick }) => {
+const AnalysisPage = ({ allTeamsData, coprData, teamsDb, assignments, onTeamClick }) => {
   // 控制目前顯示哪一個分析工具
   const [activeTab, setActiveTab] = useState('table'); // table, simulator, radar, picklist
   const [alliance, setAlliance] = useState({
@@ -39,6 +40,7 @@ const AnalysisPage = ({ allTeamsData, coprData, onTeamClick }) => {
           <AnalysisTab
             allTeamsData={allTeamsData}
             coprData={coprData}
+            teamsDb={teamsDb}
             onTeamClick={onTeamClick}
           />
         );
@@ -47,6 +49,7 @@ const AnalysisPage = ({ allTeamsData, coprData, onTeamClick }) => {
           allTeamsData={allTeamsData}
           coprData={coprData}
           alliance={alliance}        // ✨ 傳入狀態
+          teamsDb={teamsDb}
           setAlliance={setAlliance}  // ✨ 傳入修改狀態的 function
         />;
       case 'radar':
@@ -55,13 +58,15 @@ const AnalysisPage = ({ allTeamsData, coprData, onTeamClick }) => {
             allTeamsData={allTeamsData}
             coprData={coprData}
             radarTeams={radarTeams}
+            teamsDb={teamsDb}
             setRadarTeams={setRadarTeams}
           />
         );
       case 'picklist':
         return <PicklistTab
           allTeamsData={allTeamsData}
-          lists={pickLists}          // ✨ 同理
+          lists={pickLists}          
+          teamsDb={teamsDb}
           setLists={setPickLists}
         />;
 
