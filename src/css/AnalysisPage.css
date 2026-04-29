@@ -1,0 +1,115 @@
+/* AnalysisPage.css */
+
+/* 基礎佈局 */
+.analysis-page-wrapper {
+  padding: 10px;
+  background-color: #f4f7f6;
+  min-height: 100vh;
+}
+
+.analysis-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* 導航列設計 */
+.tab-navigation {
+  display: flex;
+  flex-wrap: wrap; /* 重要：讓按鈕在寬度不足時換行 */
+  gap: 8px;
+  margin-bottom: 20px;
+  justify-content: flex-start;
+}
+
+.btn-nav {
+  flex: 1 1 auto; /* 讓按鈕平均分配空間但保持最小寬度 */
+  min-width: 100px;
+  padding: 12px 15px;
+  border: 1px solid #ddd;
+  background: white;
+  cursor: pointer;
+  border-radius: 10px;
+  font-weight: 600;
+  color: #555;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.nav-num {
+  background: #eee;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-nav.active {
+  background-color: #3498db !important;
+  color: white !important;
+  border-color: #2980b9 !important;
+  box-shadow: 0 4px 10px rgba(52, 152, 219, 0.3);
+  transform: translateY(-2px);
+}
+
+.btn-nav.active .nav-num {
+  background: rgba(255,255,255,0.3);
+  color: white;
+}
+
+.btn-history {
+  border-left: 4px solid #9b59b6;
+}
+
+.btn-history.active {
+  background-color: #9b59b6 !important;
+  border-color: #8e44ad !important;
+}
+
+/* 內容區 */
+.content-area {
+  background: white;
+  border-radius: 15px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  padding: 15px;
+  overflow-x: auto; /* 防止表格撐破容器 */
+}
+
+/* --- 響應式微調 (RWD) --- */
+
+/* 平板電腦 (768px 以下) */
+@media (max-width: 768px) {
+  .analysis-page-wrapper {
+    padding: 5px;
+  }
+  .btn-nav {
+    padding: 10px;
+    font-size: 13px;
+    min-width: calc(33.33% - 10px); /* 一排顯示三個 */
+  }
+}
+
+/* 手機 (480px 以下) */
+@media (max-width: 480px) {
+  .tab-navigation {
+    gap: 5px;
+  }
+  .btn-nav {
+    min-width: calc(50% - 5px); /* 一排顯示兩個 */
+    padding: 8px 5px;
+    font-size: 12px;
+  }
+  .nav-num {
+    display: none; /* 手機版隱藏數字節省空間 */
+  }
+  .content-area {
+    padding: 10px;
+    border-radius: 10px;
+  }
+}

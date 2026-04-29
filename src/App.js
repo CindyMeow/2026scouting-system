@@ -107,7 +107,12 @@ const handleViewProfile = (teamNum) => {
             allTeamsData={masterData}
             onBack={() => setActiveTab('analysis')} // 提供返回按鈕
           />
+
+
+          
         )}
+
+        
       </div>
     </div>
   );

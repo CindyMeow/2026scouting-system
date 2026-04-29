@@ -11,9 +11,9 @@ const PitScoutPage = () => {
   // 表單初始狀態
   const initialState = {
     team: '',
-    drive: 'Swerve',
-    intake: 'Over Bumper',
-    shooter: 'Flywheel',
+    drive: ' ',
+    intake: ' ',
+    shooter: ' ',
     climb: 'None',
     autoPath: [],
     photo: null,

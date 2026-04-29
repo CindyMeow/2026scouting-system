@@ -1,54 +1,47 @@
 import React, { useState, useMemo } from 'react';
 
-const TeamHistoryTab = ({ coprData }) => {
-    const [selectedTeam, setSelectedTeam] = useState(null);
-
-    // ✨ 1. 新增排序狀態：key 為欄位名稱，direction 為 'asc' (升冪) 或 'desc' (降冪)
+// ✨ 修正 1: 傳入 setActiveTab 與 setSelectedTeam (如果是由父層管理狀態)
+const TeamHistoryTab = ({ coprData, setActiveTab, setSelectedTeam: setGlobalSelectedTeam }) => {
+    // 內部 Modal 使用的狀態 (如果是要在本頁跳轉，建議維持儲存物件)
+    const [localSelectedTeam, setLocalSelectedTeam] = useState(null);
     const [sortConfig, setSortConfig] = useState({ key: 'team_number', direction: 'asc' });
 
-    // ✨ 2. 處理排序邏輯 (使用 useMemo 優化效能)
     const sortedData = useMemo(() => {
         let sortableItems = [...coprData];
         if (sortConfig !== null) {
             sortableItems.sort((a, b) => {
-                // 處理可能為 undefined 或 null 的情況
                 let aValue = a[sortConfig.key];
                 let bValue = b[sortConfig.key];
 
-                // 如果是 history 欄位，以長度排序
                 if (sortConfig.key === 'history_count') {
                     aValue = Array.isArray(a.history) ? a.history.length : 0;
                     bValue = Array.isArray(b.history) ? b.history.length : 0;
                 }
 
-                // 數值轉換 (確保 EPA/OPR/world_rank 是數字比較)
-                if (!isNaN(Number(aValue)) && !isNaN(Number(bValue))) {
-                    aValue = Number(aValue);
-                    bValue = Number(bValue);
+                // 數值轉換優化
+                const numA = Number(aValue);
+                const numB = Number(bValue);
+                if (!isNaN(numA) && !isNaN(numB)) {
+                    aValue = numA;
+                    bValue = numB;
                 }
 
-                if (aValue < bValue) {
-                    return sortConfig.direction === 'asc' ? -1 : 1;
-                }
-                if (aValue > bValue) {
-                    return sortConfig.direction === 'asc' ? 1 : -1;
-                }
+                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
                 return 0;
             });
         }
         return sortableItems;
     }, [coprData, sortConfig]);
 
-    // ✨ 3. 切換排序的 function
     const requestSort = (key) => {
-        let direction = 'desc'; // 預設點擊先從大到小排序 (對數據分析比較直覺)
+        let direction = 'desc';
         if (sortConfig.key === key && sortConfig.direction === 'desc') {
             direction = 'asc';
         }
         setSortConfig({ key, direction });
     };
 
-    // 輔助函式：渲染排序箭頭
     const getSortIcon = (key) => {
         if (sortConfig.key !== key) return '↕️';
         return sortConfig.direction === 'asc' ? '🔼' : '🔽';
@@ -62,7 +55,6 @@ const TeamHistoryTab = ({ coprData }) => {
                 <table className="scout-table">
                     <thead>
                         <tr>
-                            {/* ✨ 4. 標題加入點擊事件與圖示 */}
                             <th onClick={() => requestSort('team_number')} style={headerStyle}>
                                 隊伍 {getSortIcon('team_number')}
                             </th>
@@ -83,17 +75,26 @@ const TeamHistoryTab = ({ coprData }) => {
                         </tr>
                     </thead>
                     <tbody>
-                        {/* ✨ 5. 使用排序後的 sortedData */}
                         {sortedData.map(team => (
                             <tr key={team.team_number}>
-                                <td style={{ fontWeight: 'bold' }}>{team.team_number}</td>
+                                <td
+                                    style={{ fontWeight: 'bold', cursor: 'pointer', color: '#3498db', textDecoration: 'underline' }}
+                                    onClick={() => {
+                                        // ✨ 修正 2: 同時執行跳轉與設定全域隊伍
+                                        if(setGlobalSelectedTeam) setGlobalSelectedTeam(team.team_number); 
+                                        if(setActiveTab) setActiveTab('profile');           
+                                    }}
+                                >
+                                    {team.team_number}
+                                </td>
                                 <td>{team.nickname}</td>
                                 <td>{team.world_rank || '-'}</td>
                                 <td style={{ color: '#e67e22', fontWeight: 'bold' }}>{team.OPR}</td>
                                 <td style={{ color: '#27ae60' }}>{team.EPA}</td>
                                 <td>{Array.isArray(team.history) ? team.history.length : 0} 場</td>
                                 <td>
-                                    <button className="btn-detail" onClick={() => setSelectedTeam(team)}>
+                                    {/* ✨ 修正 3: 這裡改為設定 local 物件，給本頁 Modal 使用 */}
+                                    <button className="btn-detail" onClick={() => setLocalSelectedTeam(team)}>
                                         查看詳情
                                     </button>
                                 </td>
@@ -103,45 +104,43 @@ const TeamHistoryTab = ({ coprData }) => {
                 </table>
             </div>
 
-            {/* --- Modal 部分保持不變 --- */}
-            {selectedTeam && (
-                <div className="modal-overlay" onClick={() => setSelectedTeam(null)}>
-                    {/* ... (同你原本的 Modal 內容) ... */}
+            {/* --- Modal 部分 --- */}
+            {localSelectedTeam && (
+                <div className="modal-overlay" onClick={() => setLocalSelectedTeam(null)}>
                     <div className="modal-content" onClick={e => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h2>Team {selectedTeam.team_number} - {selectedTeam.nickname}</h2>
-                            {/* ✨ 新增 TBA 連結按鈕 */}
+                            {/* ✨ 修正 4: 確保讀取的是物件裡的屬性 */}
+                            <h2>Team {localSelectedTeam.team_number} - {localSelectedTeam.nickname}</h2>
                             <a
-                                href={`https://www.thebluealliance.com/team/${selectedTeam.team_number}`}
+                                href={`https://www.thebluealliance.com/team/${localSelectedTeam.team_number}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="tba-link-btn"
-                                title="在 TBA 查看更多"
                             >
                                 🌐 TBA
                             </a>
-                            <button className="close-btn" onClick={() => setSelectedTeam(null)}>×</button>
+                            <button className="close-btn" onClick={() => setLocalSelectedTeam(null)}>×</button>
                         </div>
                         <div className="modal-body">
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', background: '#f0f4f8', padding: '15px', borderRadius: '10px' }}>
                                 <div>
                                     <small style={{ color: '#666' }}>地區</small>
-                                    <div style={{ fontWeight: 'bold' }}>{selectedTeam.country} / {selectedTeam.state}</div>
+                                    <div style={{ fontWeight: 'bold' }}>{localSelectedTeam.country} / {localSelectedTeam.state}</div>
                                 </div>
                                 <div style={{ textAlign: 'right' }}>
                                     <small style={{ color: '#666' }}>EPA 世界排名</small>
-                                    <div style={{ fontWeight: 'bold', color: '#e74c3c', fontSize: '18px' }}>#{selectedTeam.world_rank}</div>
+                                    <div style={{ fontWeight: 'bold', color: '#e74c3c', fontSize: '18px' }}>#{localSelectedTeam.world_rank}</div>
                                 </div>
                             </div>
-                            <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-                                <div className="stat-box"><h4>Total</h4><p>{selectedTeam.EPA}</p></div>
-                                <div className="stat-box"><h4>Auto</h4><p>{selectedTeam.auto_EPA}</p></div>
-                                <div className="stat-box"><h4>Teleop</h4><p>{selectedTeam.teleop_EPA}</p></div>
-                                <div className="stat-box"><h4>Endgame</h4><p>{selectedTeam.endgame_EPA}</p></div>
+                            <div className="stats-grid">
+                                <div className="stat-box"><h4>Total</h4><p>{localSelectedTeam.EPA}</p></div>
+                                <div className="stat-box"><h4>Auto</h4><p>{localSelectedTeam.auto_EPA}</p></div>
+                                <div className="stat-box"><h4>Teleop</h4><p>{localSelectedTeam.teleop_EPA}</p></div>
+                                <div className="stat-box"><h4>Endgame</h4><p>{localSelectedTeam.endgame_EPA}</p></div>
                             </div>
                             <h3>📅 2026 參賽紀錄</h3>
-                            {selectedTeam.history && Array.isArray(selectedTeam.history) && selectedTeam.history.length > 0 ? (
-                                selectedTeam.history.map((h, i) => (
+                            {localSelectedTeam.history && localSelectedTeam.history.length > 0 ? (
+                                localSelectedTeam.history.map((h, i) => (
                                     <div key={i} className="history-card">
                                         <div className="event-name">{h.event.toUpperCase()}</div>
                                         <div className="event-details">
@@ -152,7 +151,7 @@ const TeamHistoryTab = ({ coprData }) => {
                                     </div>
                                 ))
                             ) : (
-                                <p style={{ textAlign: 'center', color: '#999', padding: '20px' }}>該隊伍目前尚無 2026 官方比賽紀錄</p>
+                                <p style={{ textAlign: 'center', color: '#999', padding: '20px' }}>該隊伍目前尚無紀錄</p>
                             )}
                         </div>
                     </div>
