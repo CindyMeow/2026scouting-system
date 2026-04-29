@@ -32,45 +32,55 @@ const ScheduleTab = ({ schedule, setSchedule, onSyncOfficial, onTeamClick }) => 
 
     const handleConfirmSave = async (mKey) => {
         const match = schedule[mKey];
-        const mNum = match.match || match.match_number || mKey;
-        const scoresToSave = localScores[mKey] || match.scores || { red: 0, blue: 0, redRP: 0, blueRP: 0 };
+
+        // 🚀 關鍵修正：將原始場次數字減 1，以符合後端陣列從 0 開始的索引
+        const rawNum = parseInt(match.match || match.match_number || mKey);
+        const correctedNum = rawNum - 1;
+
+        const scoresToSave = {
+            red: parseInt(localScores[mKey]?.red ?? match.scores?.red ?? 0) || 0,
+            blue: parseInt(localScores[mKey]?.blue ?? match.scores?.blue ?? 0) || 0,
+            redRP: parseInt(localScores[mKey]?.redRP ?? match.scores?.redRP ?? 0) || 0,
+            blueRP: parseInt(localScores[mKey]?.blueRP ?? match.scores?.blueRP ?? 0) || 0,
+        };
 
         try {
             const response = await fetch(`http://${window.location.hostname}:5000/api/update-score`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    matchNum: mNum,
+                    // ✨ 傳送修正後的索引給後端
+                    matchNum: correctedNum,
                     redScore: scoresToSave.red,
                     blueScore: scoresToSave.blue,
-                    redRP: scoresToSave.redRP || 0,
-                    blueRP: scoresToSave.blueRP || 0
+                    redRP: scoresToSave.redRP,
+                    blueRP: scoresToSave.blueRP
                 })
             });
 
             if (response.ok) {
-                // 判斷是陣列還是物件來更新
-                let updatedSchedule;
-                if (Array.isArray(schedule)) {
-                    updatedSchedule = [...schedule];
-                    updatedSchedule[mKey] = { ...match, scores: scoresToSave };
-                } else {
-                    updatedSchedule = {
-                        ...schedule,
-                        [mKey]: { ...match, scores: scoresToSave }
-                    };
-                }
+                // 更新前端狀態 (使用原本的 mKey 以確保 React 更新正確的 Row)
+                setSchedule(prev => {
+                    if (Array.isArray(prev)) {
+                        const newSched = [...prev];
+                        newSched[mKey] = { ...match, scores: scoresToSave };
+                        return newSched;
+                    }
+                    return { ...prev, [mKey]: { ...match, scores: scoresToSave } };
+                });
 
-                setSchedule(updatedSchedule);
                 const newLocal = { ...localScores };
                 delete newLocal[mKey];
                 setLocalScores(newLocal);
+            } else {
+                const errorText = await response.text();
+                alert(`儲存失敗: ${errorText}`);
             }
         } catch (err) {
             console.error("同步失敗:", err);
+            alert("網路連線失敗");
         }
     };
-
     const renderTeams = (teams) => {
         // 🛡️ 安全防護：確保 teams 是陣列
         if (!Array.isArray(teams)) return "無資料";
