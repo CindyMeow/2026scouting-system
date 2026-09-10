@@ -66,7 +66,6 @@ Proxy 設定: 前端請求會透過 package.json 中的 proxy 轉發至 Port 500
 
 資料保存: 所有的紀錄皆以 JSON 格式儲存在 data/ 目錄下，請勿隨意刪除該目錄內的檔案。
 
-🤝 貢獻者
-Lead Developer: Cindy Liu
+Developer: Cindy Liu
 
 Scouting Team: 2026 FRC Team Members
