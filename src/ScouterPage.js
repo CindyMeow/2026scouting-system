@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
 import AutoPathMap from './AutoPathMap';
 import './css/ScouterPage.css';
+import { LAST_EVENT_KEY, loadStored, saveStored } from './utils/eventStorage';
 const compressPath = (pathPoints, shotPoints) => {
   // 將所有點轉為 2 位數格式，並直接串接
   // 範例: [{x:10, y:5}] -> "1005"
@@ -37,22 +38,22 @@ const ScouterPage = () => {
   });
 
 
-  const [schedule, setSchedule] = useState({});
+  const [eventKey, setEventKey] = useState(() => localStorage.getItem(LAST_EVENT_KEY) || '');
+  const [schedule, setSchedule] = useState(() => loadStored('schedule', localStorage.getItem(LAST_EVENT_KEY), {}));
   // --- 2. 初始化：從 localStorage 載入賽程 ---
   useEffect(() => {
-    // 優先讀取本地緩存，確保斷網可用
-    const savedSchedule = localStorage.getItem('frc_schedule');
-    if (savedSchedule) {
-      setSchedule(JSON.parse(savedSchedule));
-    }
-
     // 如果目前有網路，順便更新一次最新的賽程
-    fetch(`http://${window.location.hostname}:5000/api/data`)
-      .then(res => res.json())
+    fetch(`/api/data`)
+      .then(res => {
+        if (!res.ok) throw new Error('賽程載入失敗');
+        return res.json();
+      })
       .then(data => {
+        setEventKey(data.eventKey);
+        localStorage.setItem(LAST_EVENT_KEY, data.eventKey);
         if (data.schedule) {
           setSchedule(data.schedule);
-          localStorage.setItem('frc_schedule', JSON.stringify(data.schedule));
+          saveStored('schedule', data.eventKey, data.schedule);
         }
       })
       .catch(err => console.log("離線模式：使用緩存賽程"));
@@ -176,12 +177,11 @@ const ScouterPage = () => {
   const compLevel = currentMatchData.comp_level || 'qm';
   const matchNum = currentMatchData.match_number || matchInfo.match;
 
-  const matchDisplay = isNaN(matchInfo.match)
-    ? matchInfo.match                      // 如果是字串 (如 qm1)，直接傳
-    : (Number(matchInfo.match) || 0) + 1;  // 如果是純數字(索引)，則加 1
+  const matchDisplay = compLevel === 'sf' ? (currentMatchData.set_number || matchNum) : matchNum;  // 如果是純數字(索引)，則加 1
 
   // 數據打包 (CSV 格式) - 重要：加入 autoFuel 在第 6 個位置
   const compressedData = [
+    'FRC3', eventKey, currentMatchData.set_number || (['qm','pt'].includes(compLevel) ? 1 : ''), currentMatchData.key || currentMatchData.match_key || '',
     matchNum,
     matchInfo.team,
     matchInfo.station,
@@ -202,6 +202,7 @@ const ScouterPage = () => {
   const [copied, setCopied] = useState(false);
 
   const copyToClipboard = () => {
+    if (!eventKey || !matchInfo.team || !matchNum) return alert('請先載入賽事並選擇場次與隊伍');
     navigator.clipboard.writeText(compressedData).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -495,7 +496,7 @@ const ScouterPage = () => {
           <div className="scouter-modal" onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>數據生成成功</h3>
             <div style={{ backgroundColor: '#fff', padding: '10px', borderRadius: '10px', display: 'inline-block' }}>
-              <QRCodeCanvas value={compressedData} size={280} level="M" includeMargin={true} />
+              {eventKey && matchInfo.team && matchNum ? <QRCodeCanvas value={compressedData} size={280} level="M" includeMargin={true} /> : <p>請先載入賽事並選擇場次與隊伍。</p>}
             </div>
             <p className="scouter-data-text">{compressedData}</p>
             <div className="scouter-row" style={{ marginTop: '15px' }}>

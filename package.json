@@ -20,7 +20,11 @@
     "start": "concurrently \"npm run server\" \"npm run client\"",
     "client": "react-scripts start",
     "server": "nodemon server.js",
-    "build": "react-scripts build"
+    "server:production": "node server.js",
+    "build": "react-scripts build",
+    "doctor": "node scripts/doctor.js",
+    "test:regression": "node --test tests/regression.test.js tests/qr.test.js tests/history.test.js tests/storage.test.js",
+    "test:ui": "react-scripts test --watchAll=false --runInBand"
   },
   "browserslist": {
     "production": [

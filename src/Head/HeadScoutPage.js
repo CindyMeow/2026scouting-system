@@ -1,3 +1,4 @@
+import { sameMatch, replaceMatch, updateMatchNotes } from '../utils/matchIdentity';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useScoutData } from '../hooks/useScoutData';
 import { parseQrData } from '../utils/dataParser';
@@ -22,7 +23,8 @@ const HeadScoutPage = ({ teams: tbaTeams, setTeams, externalTeam }) => {
     updateMatchData,
     updatePitData,
     updateSchedule,
-    handleSyncOfficial
+    handleSyncOfficial,
+    refresh, context, write
   } = useScoutData();
 
 
@@ -45,6 +47,8 @@ const HeadScoutPage = ({ teams: tbaTeams, setTeams, externalTeam }) => {
         endpoint = '/api/save-schedule';
         payload = { schedule: data };
       } else if (isPit) {
+        if (data.some(r => r.eventKey && r.eventKey !== context?.eventKey)) throw new Error('Pit 檔案包含其他賽事');
+        if (data.some(r => !r.eventKey) && !window.confirm(`確認未標示賽事的 Pit 紀錄屬於 ${context?.eventKey}？`)) return;
         endpoint = '/api/save-pit';  // ✨ 補上 Pit 的路徑
         payload = { pitData: data };
       } else {
@@ -54,30 +58,11 @@ const HeadScoutPage = ({ teams: tbaTeams, setTeams, externalTeam }) => {
 
       console.log(`📡 正在發送數據到: ${endpoint}`, data);
 
-      const response = await fetch(`http://${window.location.hostname}:5000${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (response.ok) {
-        if (isSchedule) {
-          updateSchedule(data);
-          alert(`🗓️ 成功匯入 ${data.length} 場賽程`);
-        } else if (isPit) {
-          updatePitData(data); // 更新 Hook 裡的狀態
-          alert(`🛠️ 成功匯入 ${data.length} 筆 Pit 數據`);
-        } else {
-          setTeams(data);
-          alert(`✅ 成功匯入 ${data.length} 支隊伍官方資料`);
-        }
-      } else {
-        const errText = await response.text();
-        alert(`❌ 伺服器儲存失敗 (狀態碼: ${response.status})\n路徑: ${endpoint}`);
-      }
+      await write(endpoint, payload);
+      alert(`✅ 成功匯入 ${Array.isArray(data) ? data.length : Object.keys(data).length} 筆資料`);
     } catch (err) {
       console.error("Import error:", err);
-      alert("匯入過程中發生錯誤，請檢查後端是否已啟動或 API 路徑是否正確");
+      alert(`匯入失敗：${err.message}`);
     }
   };
 
@@ -103,41 +88,29 @@ const HeadScoutPage = ({ teams: tbaTeams, setTeams, externalTeam }) => {
   }, [externalTeam]);
 
   // 5. 核心業務邏輯處理
-  const handleQrScan = () => {
+  const handleQrScan = async () => {
     if (!qrInput) return;
     try {
       // 1. 解析原始數據
       const newEntry = parseQrData(qrInput);
 
-      // 2. ✨ 強化：從原始字串中提取 compLevel (最後一項)
-      const parts = qrInput.split('|');
-      const levelFromQr = parts[parts.length - 1]; // 取得最後一項，例如 'sf'
-
-      // 3. 補強物件資訊
-      const finalEntry = {
-        ...newEntry,
-        compLevel: levelFromQr || 'qm', // 如果沒有則預設 qm
-        matchKey: `${levelFromQr || 'qm'}_${newEntry.match}` // 生成唯一 Key 如 "sf_1"
-      };
-
-      // 檢查重複 (這裡也要加入 compLevel 判斷)
-      const isDuplicate = matchData.some(d =>
-        String(d.match) === String(finalEntry.match) &&
-        (d.compLevel || 'qm') === finalEntry.compLevel &&
-        String(d.team) === String(finalEntry.team)
-      );
-
-      if (isDuplicate && !window.confirm("偵測到同一場次的重複資料，確定匯入？")) return;
-
-      // 更新狀態 (useScoutData Hook 會自動同步到後端的 /api/save)
-      updateMatchData([finalEntry, ...matchData]);
+      if (!context) throw new Error('資料尚未載入');
+      if (newEntry.eventKey && newEntry.eventKey !== context.eventKey) throw new Error('QR 的賽事與目前賽事不同，未匯入');
+      if (!newEntry.eventKey && !window.confirm(`舊版 QR 未包含賽事，確認屬於 ${context.eventKey}？`)) return;
+      if (!['qm','pt'].includes(newEntry.compLevel) && !newEntry.set_number) {
+        throw new Error('此淘汰賽 QR 缺少組別，請由新版 Match 頁面重新產生');
+      }
+      const finalEntry = { ...newEntry, eventKey: context.eventKey };
+      const duplicate = matchData.some(d => sameMatch(d, finalEntry));
+      if (duplicate && !window.confirm('已存在同隊同場紀錄，是否取代？原備註會保留，核准狀態將重設。')) return;
+      if (!await updateMatchData(replaceMatch(matchData, finalEntry))) return;
 
       setQrInput("");
       const label = (finalEntry.compLevel === 'sf' ? 'SF' : finalEntry.compLevel === 'f' ? 'F' : 'Q');
       alert(`✅ Team ${finalEntry.team} ${label}${finalEntry.match} 匯入成功`);
     } catch (e) {
       console.error("QR Parse Error:", e);
-      alert("QR 解析失敗，請確認格式");
+      alert(`QR 匯入失敗：${e.message}`);
     }
   };
 
@@ -293,6 +266,7 @@ const HeadScoutPage = ({ teams: tbaTeams, setTeams, externalTeam }) => {
             pendingPitData={pendingPitData}
             handleFileImport={handleFileImport}
             setTeams={setTeams}
+            write={write}
           />
         );
       case 'pitView':
@@ -317,7 +291,7 @@ const HeadScoutPage = ({ teams: tbaTeams, setTeams, externalTeam }) => {
           {...commonProps}
         />);
       case 'schedule':
-        return <ScheduleTab schedule={schedule} setSchedule={updateSchedule} onTeamClick={handleTeamJump} onSyncOfficial={handleSyncOfficial} />;
+        return <ScheduleTab schedule={schedule} onSaved={refresh} write={write} onTeamClick={handleTeamJump} onSyncOfficial={handleSyncOfficial} />;
       case 'analysis':
         return <AnalysisTab matchData={matchData} filterTeam={filterTeam} setFilterTeam={setFilterTeam} {...commonProps} />;
       case 'profile':
@@ -325,7 +299,7 @@ const HeadScoutPage = ({ teams: tbaTeams, setTeams, externalTeam }) => {
           <ProfileTab
             profile={profileData}
             schedule={schedule}
-            onUpdateMatch={updateMatchData}
+            onUpdateMatch={record => updateMatchData(records => updateMatchNotes(records, record.id, record.headNotes))}
             drawAutoPaths={drawAutoPaths}
             setIsModalOpen={setIsModalOpen}
             {...commonProps}
@@ -342,18 +316,30 @@ const HeadScoutPage = ({ teams: tbaTeams, setTeams, externalTeam }) => {
 
     setIsSyncing(true);
     try {
-      const response = await fetch(`http://${window.location.hostname}:5000/api/sync-external`);
-      const result = await response.json();
-      if (response.ok) {
-        alert(`✅ 同步成功！已更新 ${result.count} 支隊伍數據。`);
-        // 建議這裡重新調用 fetchAllData() 來更新 AnalysisTab 的顯示
-      } else {
-        alert(`❌ 錯誤: ${result.error}`);
-      }
+      const result = await write('/api/sync-external', {});
+      alert(result.failed
+        ? `⚠️ 已更新 ${result.count}/${result.total} 支隊伍；${result.failed} 支有來源失敗，舊資料已保留。`
+        : `✅ 同步成功！已更新 ${result.count} 支隊伍數據。`);
     } catch (error) {
-      alert("無法連線至後端伺服器");
+      alert(error.message);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const downloadBackup = async () => {
+    try {
+      const response = await fetch('/api/system/export');
+      if (!response.ok) throw new Error('備份建立失敗');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${context?.eventKey || 'frc'}-scouting-backup.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      alert(error.message);
     }
   };
 
@@ -392,6 +378,9 @@ const HeadScoutPage = ({ teams: tbaTeams, setTeams, externalTeam }) => {
           disabled={isSyncing}
         >
           {isSyncing ? "⏳ 同步中..." : "🔄 同步 TBA/Statbotics 數據"}
+        </button>
+        <button onClick={downloadBackup} className="sync-btn" style={{ background: '#475569' }}>
+          💾 下載完整賽事備份
         </button>
       </div>
       <div className="head-main-content">

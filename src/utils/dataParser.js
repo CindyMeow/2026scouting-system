@@ -30,32 +30,52 @@ export const decodeAutoData = (rawStr) => {
 
 // 2. 解析 QR Code 字串並轉化為物件
 export const parseQrData = (qrInput) => {
-  const parts = qrInput.trim().split('|');
-  const ratingParts = parts[12] ? parts[12].split(',') : [3, 3, 3];
+  let parts = qrInput.trim().split('|');
+  const metadata = {};
+  if (parts[0] === 'FRC3') {
+    if (parts.length !== 19 || !/^\d{4}[a-z0-9]+$/.test(parts[1]) || !/^[1-9]\d*$/.test(parts[2])) throw new Error('新版 QR 賽事或組別格式無效');
+    metadata.eventKey = parts[1]; metadata.set_number = Number(parts[2]); metadata.officialMatchKey = parts[3] || undefined;
+    parts = parts.slice(4);
+  }
+  // 目前格式含 Auto Climb（15 欄）；舊格式為 14 欄，或未帶賽事階段的 13 欄。
+  if (![13, 14, 15].includes(parts.length)) throw new Error('QR 欄位數不符');
+  const hasAutoClimb = parts.length === 15;
+  const offset = hasAutoClimb ? 1 : 0;
+  const compLevel = parts.length === 13 ? 'qm' : parts[parts.length - 1];
+  if (!['pt', 'qm', 'ef', 'qf', 'sf', 'f'].includes(compLevel)) throw new Error('比賽階段無效');
+  if (!parts[0] || !/^\d+$/.test(parts[1])) throw new Error('場次或隊伍格式無效');
+  const numeric = (index, label, integer = false) => {
+    const value = Number(parts[index]);
+    if (parts[index] === '' || !Number.isFinite(value) || value < 0 || (integer && !Number.isInteger(value))) {
+      throw new Error(`${label} 格式無效`);
+    }
+    return value;
+  };
+  const climb = numeric(9 + offset, 'Climb Level', true);
+  if (climb > 3) throw new Error('Climb Level 必須介於 0–3');
+  const autoClimb = hasAutoClimb ? numeric(6, 'Auto Climb', true) : null;
+  if (autoClimb !== null && autoClimb > 3) throw new Error('Auto Climb 必須介於 0–3');
+  const timeText = parts[10 + offset];
+  if (timeText !== '') numeric(10 + offset, 'Climb Time');
+  const ratingParts = parts[12 + offset].split(',').map(Number);
+  if (ratingParts.length !== 3 || ratingParts.some(v => !Number.isInteger(v) || v < 1 || v > 5)) {
+    throw new Error('評分必須為三個 1–5 的整數');
+  }
   const decoded = decodeAutoData(parts[4]);
-
   return {
-    id: Date.now() + Math.floor(Math.random() * 1000), // 增加隨機值避免同毫秒碰撞
-    match: parts[0],
-    team: parts[1],
-    station: parts[2],
-    autoSuccess: parts[3] === '1',
-    autoPath: decoded.path,
-    autoFuel: parseInt(parts[5]) || 0,
-    fuelH: parseInt(parts[6]) || 0,
-    missed: parseInt(parts[7]) || 0,
-    avgCycle: parseFloat(parts[8]) || 0,
-    climbLevel: parts[9] || '0',
-    climbTime: parts[10] || "",
-    tags: parts[11] || "0000",
-    ratings: {
-      driver: parseInt(ratingParts[0]) || 3,
-      defense: parseInt(ratingParts[1]) || 3,
-      stability: parseInt(ratingParts[2]) || 3
-    },
-    headNotes: "",
-    verified: false,
-    updatedAt: new Date().toISOString()
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    match: parts[0], team: parts[1], station: parts[2],
+    ...metadata, compLevel, matchKey: metadata.officialMatchKey || `${compLevel}_${metadata.set_number ?? '?'}_${parts[0]}`,
+    autoSuccess: parts[3] === '1', autoPath: decoded.path,
+    autoFuel: numeric(5, 'Auto Fuel', true), autoClimbLevel: autoClimb,
+    fuelH: numeric(6 + offset, 'Fuel', true),
+    missed: numeric(7 + offset, 'Missed', true),
+    avgCycle: numeric(8 + offset, 'Cycle'),
+    climbLevel: String(climb), climbTime: timeText,
+    tags: parts[11 + offset],
+    ratings: { driver: ratingParts[0], defense: ratingParts[1], stability: ratingParts[2] },
+    rawQr: qrInput.trim(), qrFormatVersion: metadata.eventKey ? 3 : hasAutoClimb ? 2 : 1,
+    headNotes: '', verified: false, updatedAt: new Date().toISOString()
   };
 };
 

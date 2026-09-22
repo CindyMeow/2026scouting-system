@@ -1,0 +1,8 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');
+const file=process.env.HISTORY_MODULE || require('node:path').join(__dirname,'../src/utils/teamHistory.js');
+const mod=import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync(file,'utf8')).toString('base64'));
+const record={id:1,team:'9094',match:'1',compLevel:'qm',station:'Red 1',fuelH:30,climbLevel:'1',climbTime:'2.1'};
+test('imported Q1 remains visible without schedule',async()=>{const rows=(await mod).buildTeamHistory({},[record],'9094');assert.equal(rows.length,1);assert.equal(rows[0].scouterData.fuelH,30);assert.equal(rows[0].match,'Q1');assert.equal(rows[0].scores,null);});
+test('CSV, normalized, and TBA schedules match the same record',async()=>{for(const m of [{match:1,red1:9094,scores:{red:0,blue:0}},{match_number:1,red:['9094'],blue:[],scores:{red:10,blue:2}},{match_number:1,alliances:{red:{team_keys:['frc9094'],score:10},blue:{team_keys:[],score:2}}}]){const rows=(await mod).buildTeamHistory([m],[record],'9094');assert.equal(rows.length,1);assert.equal(rows[0].scouterData.id,1);assert.notEqual(rows[0].result,'-');}});
+test('partial schedule does not hide unmatched imported records',async()=>{const rows=(await mod).buildTeamHistory([{match:2,red1:9094}],[record],'9094');assert.equal(rows.length,2);});
+test('playoff sets are not collapsed or matched ambiguously',async()=>{const rows=(await mod).buildTeamHistory([1,2].map(set_number=>({match_number:1,set_number,comp_level:'sf',red1:9094})),[{...record,compLevel:'sf'}],'9094');assert.equal(rows.length,3);assert.equal(rows.filter(r=>r.scouterData).length,1);});

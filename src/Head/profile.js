@@ -1,4 +1,6 @@
+import { totalFuel } from '../utils/matchIdentity';
 //profile.js
+import { buildTeamHistory } from '../utils/teamHistory';
 import React, { useState, useEffect, useRef } from 'react';
 
 const ProfileTab = ({
@@ -28,81 +30,7 @@ const ProfileTab = ({
     }
   }, [selectedMatchId, profile, drawAutoPaths]);
 
-  // --- 新增：合併官方賽程邏輯 ---
-  const getCombinedHistory = () => {
-    if (!schedule || !selectedTeam) return [];
-
-
-    const teamStr = String(selectedTeam);
-    const rawArray = Array.isArray(schedule) ? schedule : Object.values(schedule);
-
-    // 1. 建立唯一 ID (組合類型與場次)，避免 Q1 重複
-    const uniqueMatches = Array.from(
-      rawArray.reduce((map, item) => {
-        // 這裡建立一個唯一的 key，例如 "qm_1" 或 "sf_1"
-        const uniqueKey = `${item.comp_level}_${item.match_number || item.match}`;
-        if (!map.has(uniqueKey)) map.set(uniqueKey, item);
-        return map;
-      }, new Map()).values()
-    );
-
-    return uniqueMatches
-      .filter(sMatch => {
-        const teamsInMatch = [
-          sMatch.red1, sMatch.red2, sMatch.red3,
-          sMatch.blue1, sMatch.blue2, sMatch.blue3
-        ].map(String);
-        return teamsInMatch.includes(teamStr);
-      })
-      .sort((a, b) => {
-        // 2. 排序邏輯：資格賽優先 (qm -> sf -> f)
-        const levelOrder = { qm: 1, sf: 2, f: 3 };
-        if (levelOrder[a.comp_level] !== levelOrder[b.comp_level]) {
-          return levelOrder[a.comp_level] - levelOrder[b.comp_level];
-        }
-        return (a.match_number || a.match) - (b.match_number || b.match);
-      })
-      .map(sMatch => {
-        const mNum = sMatch.match_number || sMatch.match;
-        const level = sMatch.comp_level;
-
-        // 3. 格式化顯示名稱
-        // qm 1 -> Q1, sf 1 -> SF1, f 1 -> F1
-        const displayLabel = level === 'qm' ? `Q${mNum}` :
-          level === 'sf' ? `SF${sMatch.set_number || mNum}` :
-            `F${mNum}`;
-
-        const isRed = [sMatch.red1, sMatch.red2, sMatch.red3].map(String).includes(teamStr);
-        const redScore = sMatch.red_score ?? 0;
-        const blueScore = sMatch.blue_score ?? 0;
-
-        let result = "-";
-        if (redScore > 0 || blueScore > 0) {
-          if (redScore === blueScore) result = "Tie";
-          else if (isRed) result = redScore > blueScore ? "Win" : "Loss";
-          else result = blueScore > redScore ? "Win" : "Loss";
-        }
-
-        // 4. 比對 Scouter 數據 (比對時也要考慮 comp_level 以免對錯)
-        const scouterData = profile?.history?.find(h => {
-          const hMatch = String(h.match);
-          const sMatchNum = String(mNum);
-          const hLevel = h.compLevel || 'qm';
-          // 同時支援 matchKey 或 (編號+階段) 的比對
-          return (h.matchKey === `${level}_${mNum}`) || (hMatch === sMatchNum && hLevel === level);
-        });
-
-        return {
-          match: displayLabel, // 現在會顯示 Q1, SF1 等正確標籤
-          isRed,
-          result,
-          scores: { red: redScore, blue: blueScore },
-          scouterData: scouterData || null
-        };
-      });
-  };
-
-  const combinedHistory = getCombinedHistory();
+  const combinedHistory = buildTeamHistory(schedule, profile?.history, selectedTeam);
 
   // 計算聚合數據 (維持原樣)
   const history = profile?.history || [];
@@ -126,9 +54,9 @@ const ProfileTab = ({
 
   const avgRatings = getAvgRatings(history);
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (onUpdateMatch && editingMatch) {
-      onUpdateMatch({ ...editingMatch, headNotes: tempNotes });
+      if (!await onUpdateMatch({ ...editingMatch, headNotes: tempNotes })) return;
       setEditingMatch(null);
       alert("備註已更新");
     }
@@ -203,7 +131,7 @@ const ProfileTab = ({
               {/* 數據統計區保持原樣 */}
               <div className="stats-analysis-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '10px' }}>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '12px', color: '#666' }}>總命中率</div>
+                  <div style={{ fontSize: '12px', color: '#666' }}>Teleop 命中率</div>
                   <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#2ecc71' }}>{hitRate}%</div>
                 </div>
                 <div style={{ textAlign: 'center' }}>
@@ -282,9 +210,9 @@ const ProfileTab = ({
                   <tr>
                     <th>Match</th>
                     <th>聯盟/結果</th>
-                    <th>命中率</th>
+                    <th>Teleop 命中率</th>
                     <th>Avg Cycle</th>
-                    <th>Fuel</th>
+                    <th>Fuel 總數 (Auto + Teleop)</th>
                     <th>Missed</th>
                     <th>Climb</th>
                     <th>Climb Time</th>
@@ -295,6 +223,7 @@ const ProfileTab = ({
                   </tr>
                 </thead>
                 <tbody>
+                  {combinedHistory.length === 0 && <tr><td colSpan={12}>此隊伍尚無比賽紀錄或賽程。</td></tr>}
                   {combinedHistory.map((row, i) => {
                     const { scouterData, isRed, result, scores, match } = row;
                     const resColor = result === "Win" ? "#2ecc71" : result === "Loss" ? "#e74c3c" : "#95a5a6";
@@ -307,11 +236,12 @@ const ProfileTab = ({
                           onClick={() => setActiveSubTab('schedule')}
                         >
                           {match}
+                          {!row.scheduled && <small style={{ display: 'block', color: '#718096' }}>未對應賽程</small>}
                         </td>
 
                         <td style={{ fontSize: '12px' }}>
                           <span style={{ color: isRed ? '#e74c3c' : '#3498db', fontWeight: 'bold' }}>
-                            {isRed ? "RED" : "BLUE"}
+                            {isRed === null ? "—" : isRed ? "RED" : "BLUE"}
                           </span>
                           <div style={{ color: resColor, fontWeight: 'bold' }}>
                             {result} {scores ? `(${scores.red}:${scores.blue})` : ''}
@@ -320,8 +250,8 @@ const ProfileTab = ({
 
                         {/* 如果 scouterData 存在才顯示數據，否則顯示 "-" */}
                         <td>{scouterData ? `${((scouterData.fuelH / (Number(scouterData.fuelH) + Number(scouterData.missed) || 1)) * 100).toFixed(0)}%` : "-"}</td>
-                        <td>{scouterData?.avgCycle || scouterData?.avgCircle || "-"}</td>
-                        <td>{scouterData?.fuelH ?? "-"}</td>
+                        <td>{scouterData?.avgCycle ?? scouterData?.avgCircle ?? "-"}</td>
+                        <td>{scouterData ? totalFuel(scouterData) : "-"}</td>
                         <td>{scouterData?.missed ?? "-"}</td>
                         <td>{scouterData ? `L${scouterData.climbLevel}` : "-"}</td>
                         <td>{scouterData ? `${scouterData.climbTime}s` : "-"}</td>

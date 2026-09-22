@@ -1,78 +1,64 @@
-import { useState, useEffect, useCallback } from 'react';
+import { writeJson } from '../utils/api';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export const useScoutData = () => {
   const [matchData, setMatchData] = useState([]);
   const [pitData, setPitData] = useState([]);
   const [schedule, setSchedule] = useState({});
+  const [context, setContext] = useState(null);
   const [loading, setLoading] = useState(false);
-
-  // 1. 從伺服器抓取所有原始數據
+  const snapshot = useRef(null);
+  const saving = useRef(false);
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`http://${window.location.hostname}:5000/api/data`);
-      const data = await res.json();
-      if (data.matchData) setMatchData(data.matchData);
-      if (data.pitData) setPitData(data.pitData);
-      if (data.schedule) setSchedule(data.schedule);
-    } catch (err) {
-      console.error("無法連線至本地資料庫伺服器", err);
-    } finally {
-      setLoading(false);
-    }
+      const response = await fetch('/api/data');
+      if (!response.ok) throw new Error('載入資料失敗');
+      const data = await response.json();
+      snapshot.current = data;
+      setContext({ eventKey: data.eventKey, revisions: data.revisions });
+      setMatchData(data.matchData || []);
+      setPitData(data.pitData || []);
+      setSchedule(data.schedule || {});
+      window.dispatchEvent(new Event('scout-data-updated'));
+    } finally { setLoading(false); }
   }, []);
 
-  // 2. 同步數據到磁碟 (Node.js Server)
-  const syncToDisk = async (currentMatches, currentPits, currentSchedule = schedule) => {
+  const save = async (field, value) => {
+    if (!snapshot.current || saving.current) { alert('資料尚在載入或儲存中，請稍後再試'); return false; }
+    saving.current = true;
     try {
-      const response = await fetch(`http://${window.location.hostname}:5000/api/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          matchData: currentMatches, 
-          pitData: currentPits, 
-          schedule: currentSchedule 
-        })
-      });
-      if (!response.ok) throw new Error("網路回應不正常");
-      console.log("💾 磁碟同步成功");
-    } catch (err) {
-      console.error("磁碟寫入失敗:", err);
-      alert("磁碟同步失敗！請確認 Node.js Server 是否運行中。");
-    }
+      const next = typeof value === 'function' ? value(snapshot.current[field]) : value;
+      await writeJson(field === 'schedule' ? '/api/save-schedule' : '/api/save', { [field]: next }, snapshot.current);
+      await fetchData().catch(() => alert('資料已儲存，但重新載入失敗，請重新整理；勿重複送出'));
+      return true;
+    } catch (err) { alert(err.message); return false; }
+    finally { saving.current = false; }
   };
-
-  // 3. 更新 Match 數據的統一入口 (自動觸發同步)
-  const updateMatchData = async (newData) => {
-    setMatchData(newData);
-    await syncToDisk(newData, pitData);
+  const handleSyncOfficial = async () => {
+    if (saving.current) return;
+    saving.current = true;
+    setLoading(true);
+    try {
+      const result = await writeJson('/api/sync-tba-matches', {}, snapshot.current);
+      await fetchData();
+      alert(`已同步 ${result.count} 場官方賽程`);
+    } catch (err) { alert(err.message); }
+    finally { saving.current = false; setLoading(false); }
   };
-
-  // 4. 更新 Pit 數據的統一入口 (自動觸發同步)
-  const updatePitData = async (newData) => {
-    setPitData(newData);
-    await syncToDisk(matchData, newData);
+  useEffect(() => { fetchData().catch(err => console.error(err)); }, [fetchData]);
+  const write = async (url, body) => {
+    if (saving.current) throw new Error('另一筆資料正在儲存，請稍後再試');
+    saving.current = true;
+    try {
+      const result = await writeJson(url, body, snapshot.current);
+      await fetchData().catch(() => alert('資料已儲存，但重新載入失敗，請重新整理'));
+      return result;
+    } finally { saving.current = false; }
   };
-
-  // 5. 更新 Schedule 數據 (例如手動輸入比分後)
-  const updateSchedule = async (newSchedule) => {
-    setSchedule(newSchedule);
-    await syncToDisk(matchData, pitData, newSchedule);
-  };
-
-  // 初次加載
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  return {
-    matchData,
-    pitData,
-    schedule,
-    loading,
-    updateMatchData,
-    updatePitData,
-    updateSchedule,
-    refresh: fetchData // 讓 UI 可以手動重新整理
-  };
+  return { matchData, pitData, schedule, loading, context, write,
+    updateMatchData: value => save('matchData', value),
+    updatePitData: value => save('pitData', value),
+    updateSchedule: value => save('schedule', value),
+    handleSyncOfficial, refresh: fetchData };
 };

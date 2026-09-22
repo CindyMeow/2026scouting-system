@@ -14,7 +14,8 @@ function App() {
   useEffect(() => {
     const fetchData = async () => {
   try {
-    const response = await fetch(`http://${window.location.hostname}:5000/api/data`);
+    const response = await fetch(`/api/data`);
+    if (!response.ok) throw new Error("載入失敗");
     const data = await response.json();
 
     if (data && typeof data === 'object') {
@@ -24,7 +25,8 @@ function App() {
       setMasterData({
         matchData: Array.isArray(data.matchData) ? data.matchData : [],
         pitData: Array.isArray(data.pitData) ? data.pitData : [],
-        teams: data.teams || {}
+        teams: data.teams || {},
+        eventKey: data.eventKey
       });
     }
   } catch (err) {
@@ -35,16 +37,19 @@ function App() {
 };
     const fetchCopr = async () => {
       try {
-        const res = await fetch(`http://${window.location.hostname}:5000/api/copr`);
+        const res = await fetch(`/api/copr`);
+        if (!res.ok) throw new Error("載入失敗");
         const data = await res.json();
         setCoprData(data); // 這樣 AnalysisPage 就有 OPR 數據了！
       } catch (err) {
         console.warn("尚未偵測到 COPR 資料，表格將僅顯示 Scouting 數據");
       }
     };
-    fetchCopr();
-    fetchData();
-  }, []);
+    const refresh = () => { fetchCopr(); fetchData(); };
+    refresh();
+    window.addEventListener('scout-data-updated', refresh);
+    return () => window.removeEventListener('scout-data-updated', refresh);
+  }, [activeTab]);
 const handleViewProfile = (teamNum) => {
   setSelectedTeam(String(teamNum)); 
   setActiveTab('head'); // 直接跳到 Head 分頁，並讓 Head 內部顯示 Profile
@@ -100,19 +105,6 @@ const handleViewProfile = (teamNum) => {
             onTeamClick={handleViewProfile}
           />
         )}
-        {/* ✨ 修改 2：新增 ProfilePage 的渲染邏輯 */}
-        {activeTab === 'profile' && (
-          <ProfilePage 
-            teamNum={selectedTeam} 
-            allTeamsData={masterData}
-            onBack={() => setActiveTab('analysis')} // 提供返回按鈕
-          />
-
-
-          
-        )}
-
-        
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import { totalFuel } from '../utils/matchIdentity';
 //Head/matchVerify.js
 import React, { useState } from 'react';
 
@@ -21,13 +22,15 @@ const MatchVerifyTab = ({ matchData = [], toggleVerify, deleteMatch, setSelected
       // 保持評分數據不被遺失
       ratings: match.ratings || { driver: 3, defense: 3, stability: 3 },
       compLevel: match.compLevel || 'qm',
+      set_number: match.set_number || '',
     });
   };
-const handleSave = () => {
+const handleSave = async () => {
     // 檢查是否有正在編輯的資料與更新函式
     if (onUpdateMatch && editingMatch) {
       
       // 1. 先定義更新後的單筆資料 (這一步最重要，不可缺少)
+      if (!['qm','pt'].includes(tempData.compLevel) && (!Number.isInteger(Number(tempData.set_number)) || Number(tempData.set_number) < 1)) return alert('淘汰賽必須指定組別');
       const updatedEntry = {
         ...editingMatch, // 保留原始 id, autoPath 等
         match: tempData.match,
@@ -40,7 +43,9 @@ const handleSave = () => {
         climbTime: tempData.climbTime,
         headNotes: tempData.headNotes,
         compLevel: tempData.compLevel,
-        matchKey: `${tempData.compLevel}_${tempData.match}`
+        set_number: tempData.set_number ? Number(tempData.set_number) : undefined,
+        officialMatchKey: String(tempData.match) === String(editingMatch.match) && tempData.compLevel === editingMatch.compLevel && String(tempData.set_number || '') === String(editingMatch.set_number || '') ? editingMatch.officialMatchKey : undefined,
+        matchKey: `${tempData.compLevel}_${tempData.set_number || '?'}_${tempData.match}`
       };
 
       // 2. 產生包含更新資料的完整陣列
@@ -50,7 +55,7 @@ const handleSave = () => {
       );
 
       // 3. 執行更新並同步至伺服器
-      onUpdateMatch(updatedFullList);
+      if (!await onUpdateMatch(updatedFullList)) return;
       
       // 4. 關閉編輯彈窗
       setEditingMatch(null);
@@ -68,7 +73,7 @@ const handleSave = () => {
               <th>Match</th>
               <th>Team</th>
               <th>Station</th>
-              <th>Fuel (H)</th>
+              <th>Fuel 總數 (Auto + Teleop)</th>
               <th>狀態</th>
               <th>操作</th>
             </tr>
@@ -90,7 +95,7 @@ const handleSave = () => {
                       {d.team}
                     </td>
                     <td style={{ fontSize: '12px' }}>{d.station}</td>
-                    <td>{d.fuelH}</td>
+                    <td>{totalFuel(d)}</td>
                     <td style={{ color: d.verified ? '#4CAF50' : '#FF9800', fontWeight: '500' }}>
                       {d.verified ? '● 已確認' : '○ 待核對'}
                     </td>
@@ -147,12 +152,12 @@ const handleSave = () => {
                 </select>
               </div>
               <div style={{ backgroundColor: '#e3f2fd', padding: '8px', borderRadius: '6px' }}>
-                <label style={{ fontSize: '13px', fontWeight: 'bold', color: '#1976d2' }}>Auto Fuel Score</label>
+                <label style={{ fontSize: '13px', fontWeight: 'bold', color: '#1976d2' }}>Auto Fuel</label>
                 <input type="number" style={inputStyle} value={tempData.autoFuel} onChange={(e) => setTempData({ ...tempData, autoFuel: e.target.value })} />
               </div>
 
               <div>
-                <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Fuel (High)</label>
+                <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Teleop Fuel</label>
                 <input type="number" style={inputStyle} value={tempData.fuelH} onChange={(e) => setTempData({ ...tempData, fuelH: e.target.value })} />
               </div>
               <div>
@@ -169,7 +174,8 @@ const handleSave = () => {
               </div>
             </div>
 
-            <div style={{ marginTop: '15px' }}>
+            {!['qm', 'pt'].includes(tempData.compLevel) && <div><label>淘汰賽組別</label><input type="number" min="1" value={tempData.set_number} onChange={e => setTempData({ ...tempData, set_number: e.target.value })} /></div>}
+              <div style={{ marginTop: '15px' }}>
               <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Head Scouter 備註</label>
               <textarea style={{ ...inputStyle, height: '80px' }} value={tempData.headNotes} onChange={(e) => setTempData({ ...tempData, headNotes: e.target.value })} placeholder="記錄異常表現或防守策略..." />
             </div>

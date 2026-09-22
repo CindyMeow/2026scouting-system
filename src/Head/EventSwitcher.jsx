@@ -7,30 +7,43 @@ const EventSwitcher = () => {
     });
     const [currentStatus, setCurrentStatus] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
 
     const eventOptions = ["2026txcle", "2026txman", "2026twno", "2026chcmp"];
 
     useEffect(() => {
-        fetch(`http://${window.location.hostname}:5000/api/system/config`)
-            .then(res => res.json())
+        fetch(`/api/system/config`)
+            .then(res => {
+                if (!res.ok) throw new Error(`讀取賽事設定失敗（HTTP ${res.status}）`);
+                return res.json();
+            })
             .then(data => {
                 setConfig({ year: data.year, eventKey: data.eventKey });
                 setCurrentStatus(data.eventKey);
+            })
+            .catch(err => {
+                console.error('讀取賽事設定失敗:', err);
+                setError('無法載入賽事設定，請確認後端服務已啟動後重新整理。');
             });
     }, []);
 
     const handleSwitch = async () => {
         if (!window.confirm(`確定切換至 ${config.eventKey}？`)) return;
         setLoading(true);
+        setError('');
         try {
-            await fetch(`http://${window.location.hostname}:5000/api/system/switch-event`, {
+            const response = await fetch(`/api/system/switch-event`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
+                body: JSON.stringify({ ...config, expectedEventKey: currentStatus })
             });
+            if (!response.ok) {
+                const result = await response.json().catch(() => ({}));
+                throw new Error(result.error || `切換失敗（HTTP ${response.status}）`);
+            }
             window.location.reload(); 
         } catch (err) {
-            alert("切換失敗");
+            setError(`切換失敗：${err.message}`);
         } finally {
             setLoading(false);
         }
@@ -38,6 +51,7 @@ const EventSwitcher = () => {
 
     return (
         <div className="sidebar-event-switcher">
+            {error && <p role="alert" style={{ color: '#fca5a5' }}>{error}</p>}
             <div className="current-event-badge">
                 <small>目前載入：</small>
                 <span>{currentStatus || '---'}</span>

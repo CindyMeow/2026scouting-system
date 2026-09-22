@@ -1,10 +1,15 @@
+import { readJson, writeJson } from './utils/api';
 //PitScoutPage.js
 import React, { useState, useEffect } from 'react';
 import AutoPathMap from './AutoPathMap';
 import './css/PitScout.css';
+import { LAST_EVENT_KEY, loadStored, saveStored } from './utils/eventStorage';
 
 const PitScoutPage = () => {
-  const [allTeams, setAllTeams] = useState([]); // 存放所有官方隊伍
+  const rememberedEvent = localStorage.getItem(LAST_EVENT_KEY) || '';
+  const [context, setContext] = useState(null);
+  const [eventKey, setEventKey] = useState(rememberedEvent);
+  const [allTeams, setAllTeams] = useState(() => loadStored('teams', rememberedEvent, []));
   const [searchTerm, setSearchTerm] = useState(''); // 搜尋關鍵字
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -32,22 +37,20 @@ const PitScoutPage = () => {
       };
     });
   };
-  const [savedRecords, setSavedRecords] = useState([]);
+  const [savedRecords, setSavedRecords] = useState(() => loadStored('pit_temp', rememberedEvent, []));
   // 初始化：載入隊伍清單 (與 ScouterPage 邏輯一致)
   useEffect(() => {
-    const savedTeams = localStorage.getItem('frc_teams_list');
-    if (savedTeams) {
-      setAllTeams(JSON.parse(savedTeams));
-    }
-
     // 嘗試從伺服器更新
-    fetch(`http://${window.location.hostname}:5000/api/data`) // 替換為你的電腦 IP
-      .then(res => res.json())
+    readJson('/api/data')
       .then(data => {
+        setContext(data);
+        setEventKey(data.eventKey);
+        localStorage.setItem(LAST_EVENT_KEY, data.eventKey);
+        setSavedRecords(loadStored('pit_temp', data.eventKey, []));
         if (data.teams) {
           const teamList = Object.keys(data.teams);
           setAllTeams(teamList);
-          localStorage.setItem('frc_teams_list', JSON.stringify(teamList));
+          saveStored('teams', data.eventKey, teamList);
         }
       })
       .catch(() => console.log("離線模式：使用緩存隊伍清單"));
@@ -57,18 +60,6 @@ const PitScoutPage = () => {
   const filteredTeams = allTeams
     .filter(t => t.startsWith(searchTerm))
     .slice(0, 5); // 只顯示前 5 筆建議，避免遮擋螢幕
-
-  // 1. 初始化：從本地載入已存過的紀錄
-  useEffect(() => {
-    const saved = localStorage.getItem('scouter_pit_temp');
-    if (saved) {
-      try {
-        setSavedRecords(JSON.parse(saved));
-      } catch (e) {
-        console.error("解析本地資料失敗", e);
-      }
-    }
-  }, []);
 
   // 2. 處理照片並壓縮 (關鍵：防止 localStorage 爆掉)
   const handlePhotoUpdate = (e) => {
@@ -101,6 +92,7 @@ const PitScoutPage = () => {
   // 3. 儲存單筆紀錄到本地列表
   const saveToLocal = () => {
     if (!pitData.team) return alert("請輸入隊伍編號！");
+    if (!eventKey) return alert('尚未載入賽事，請先連線一次再儲存');
 
     let formattedPath = "";
     if (Array.isArray(pitData.autoPath) && pitData.autoPath.length > 0) {
@@ -113,16 +105,19 @@ const PitScoutPage = () => {
       updatedRecords = savedRecords.map(r =>
         r.id === editingId ? { ...pitData, autoPath: formattedPath, id: editingId } : r
       );
-      alert(`隊伍 ${pitData.team} 資料已更新！`);
     } else {
       // 新增紀錄
-      const newRecord = { ...pitData, autoPath: formattedPath, id: Date.now() };
+      const newRecord = { ...pitData, eventKey: eventKey || null, autoPath: formattedPath, id: Date.now() };
       updatedRecords = [...savedRecords, newRecord];
-      alert(`隊伍 ${pitData.team} 資料已儲存！`);
     }
 
+    try {
+      saveStored('pit_temp', eventKey, updatedRecords);
+    } catch (error) {
+      return alert(`本機儲存失敗：${error.message}。照片可能過大，請先匯出既有資料。`);
+    }
     setSavedRecords(updatedRecords);
-    localStorage.setItem('scouter_pit_temp', JSON.stringify(updatedRecords));
+    alert(`隊伍 ${pitData.team} 資料已${editingId ? '更新' : '儲存'}！`);
     setPitData(initialState);
     setEditingId(null);
     setSearchTerm('');
@@ -147,23 +142,19 @@ const PitScoutPage = () => {
   const uploadToServer = async () => {
     if (!navigator.onLine) return alert("目前沒有網路連線！請連上區網後再同步。");
     if (savedRecords.length === 0) return alert("沒有資料需要上傳。");
+    if (!context) return alert('請先連線載入目前賽事');
+    if (savedRecords.some(r => r.eventKey && r.eventKey !== context.eventKey)) return alert('暫存紀錄包含其他賽事，請先匯出保存並切換到正確賽事');
+    if (savedRecords.some(r => !r.eventKey) && !window.confirm(`舊紀錄未標示賽事，確認這些紀錄全部屬於 ${context.eventKey}？`)) return;
 
     try {
-      // 這裡請替換成你們團隊實際的 API 網址
-      const response = await fetch(`http://${window.location.hostname}:5000/api/upload-pit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-          scouter: "iPad_User_1", // 這裡可以改成 Scouter 姓名
-          data: savedRecords
-      })
-    });
-
-      if (response.ok) {
-        alert("☁️ 所有數據已成功同步到伺服器！");
-      } else {
-        alert("同步失敗，伺服器回傳錯誤。");
-      }
+      const records = savedRecords.map(r => ({ ...r, eventKey: r.eventKey || context.eventKey }));
+      await writeJson('/api/upload-pit', { scouter: 'iPad_User_1', data: records }, context);
+      setSavedRecords(records);
+      saveStored('pit_temp', context.eventKey, records);
+      setContext(null);
+      try { setContext(await readJson('/api/data')); }
+      catch { alert('資料已上傳，請重新整理以載入新版本'); return; }
+      alert('☁️ 所有數據已成功同步到伺服器！');
     } catch (error) {
       alert("同步時發生錯誤: " + error.message);
     }
@@ -173,7 +164,7 @@ const PitScoutPage = () => {
     if (window.confirm("確定要刪除這筆隊伍資料嗎？")) {
       const updated = savedRecords.filter(r => r.id !== id);
       setSavedRecords(updated);
-      localStorage.setItem('scouter_pit_temp', JSON.stringify(updated));
+      saveStored('pit_temp', eventKey, updated);
     }
   };
 

@@ -1,13 +1,17 @@
 // config/paths.js
 const path = require('path');
 
+const getDataRoot = () => process.env.SCOUT_DATA_DIR || path.join(__dirname, '..', 'Data');
+
 // 取得目前的賽事代碼，例如 '2026dal'
 const getEventBase = () => {
   const eventKey = process.env.CURRENT_EVENT || '2026dal';
-  return path.join(__dirname, '..', 'data', eventKey);
+  return path.join(getDataRoot(), eventKey);
 };
 
 module.exports = {
+  get DATA_ROOT() { return getDataRoot(); },
+  get RUNTIME_CONFIG_FILE() { return path.join(getDataRoot(), 'system_config.json'); },
   // 核心目錄 Getter
   get EVENT_DIR() { return getEventBase(); },
   

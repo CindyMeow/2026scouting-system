@@ -1,6 +1,8 @@
+import { readJson, writeJson } from '../utils/api';
 import React, { useState, useEffect } from 'react';
 
 const AssignmentTab = ({ schedule }) => {
+  const [context, setContext] = useState(null);
   const [scouterNames, setScouterNames] = useState(""); 
   const [scouterList, setScouterList] = useState([]);   
   const [shiftsPerBlock, setShiftsPerBlock] = useState(5);
@@ -9,9 +11,9 @@ const AssignmentTab = ({ schedule }) => {
 
   // --- 載入邏輯：從資料庫獲取現有排班 ---
   useEffect(() => {
-    fetch(`http://${window.location.hostname}:5000/api/assignments`)
-      .then(res => res.json())
+    readJson('/api/assignments')
       .then(data => {
+        setContext(data);
         // 1. 先把名單解析出來
         if (data.scouterList && data.scouterList.length > 0) {
           setScouterList(data.scouterList);
@@ -36,6 +38,7 @@ const AssignmentTab = ({ schedule }) => {
   // 按下此按鈕才會「覆蓋」目前的畫面顯示新生成的數據
   const generateSchedule = () => {
     const names = parseNames(scouterNames);
+    if (!Number.isInteger(Number(shiftsPerBlock)) || Number(shiftsPerBlock) < 1) return alert('換班場數必須為正整數');
     if (names.length < 7) return alert("名單至少需要 7 人！");
 
     setScouterList(names);
@@ -73,20 +76,14 @@ const AssignmentTab = ({ schedule }) => {
   const saveAllData = async () => {
     const names = parseNames(scouterNames);
     try {
-      const response = await fetch(`http://${window.location.hostname}:5000/api/save-assignments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          assignments: assignments,
-          scouterList: names 
-        })
-      });
-      if(response.ok) {
-        setScouterList(names);
-        alert("✅ 排班與名單已成功同步至資料庫！");
-      }
+      await writeJson('/api/save-assignments', { assignments, scouterList: names }, context);
+      setScouterList(names);
+      setContext(null);
+      try { setContext(await readJson('/api/assignments')); }
+      catch { alert('已儲存，請重新整理以載入新版本'); return; }
+      alert('✅ 排班與名單已儲存');
     } catch (err) {
-      alert("儲存失敗，請檢查後端是否正常運行");
+      alert(err.message);
     }
   };
 

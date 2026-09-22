@@ -107,7 +107,6 @@ const AutoPathMap = ({ onPathUpdate, mode, station, initialPath }) => {
         <span style={{ color: isRed ? '#f44336' : '#2196F3' }}>
           ● {station} {mode === 'path' ? '(畫筆模式)' : '(點擊射球)'}
         </span>
-        <span style={styles.scrollHint}>路徑用劃的，射球用點的</span>
       </div>
 
       <div style={styles.scrollContainer}>

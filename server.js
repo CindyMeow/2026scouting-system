@@ -6,16 +6,26 @@ const bodyParser = require('body-parser');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const { revision, metrics, normalizeSchedule, mergePit } = require('./lib/scout');
+const syncExternal = require('./lib/external');
+const { readJson, atomicWriteJson } = require('./lib/storage');
+const read = file => readJson(file, null);
+let syncing = false;
 
 
 // ✨ 1. 引入路徑配置檔
 // 確保你已經建立了 config/paths.js
 const paths = require('./config/paths');
 
+// .env 優先；未指定時讀取上次在畫面選擇的賽事。
+const savedRuntime = readJson(paths.RUNTIME_CONFIG_FILE, {});
+process.env.CURRENT_YEAR ||= savedRuntime.year || '2026';
+process.env.CURRENT_EVENT ||= savedRuntime.eventKey || '2026dal';
+
 
 const app = express();
-// 優先使用 .env 裡的 PORT，否則預設 5000
-const PORT = process.env.SERVER_PORT || 5000;
+// 優先使用 .env 裡的 SERVER_PORT，否則預設 5001（與前端 proxy 一致）
+const PORT = process.env.SERVER_PORT || 5001;
 
 // 解析設定
 app.use(bodyParser.json({ limit: '100mb' }));
@@ -44,7 +54,7 @@ const initSystem = () => {
 
   const initFile = (file, defaultData) => {
     if (!fs.existsSync(file)) {
-      fs.writeFileSync(file, JSON.stringify(defaultData, null, 2));
+      atomicWriteJson(file, defaultData, { backup: false });
     }
   };
 
@@ -65,6 +75,33 @@ const getEvent = () => process.env.CURRENT_EVENT || '2026dal';
 const TBA_API_KEY = process.env.TBA_API_KEY;
 const TBA_BASE_URL = 'https://www.thebluealliance.com/api/v3';
 
+// 所有寫入都使用畫面載入時的賽事與版本，禁止以最新版本掩蓋舊畫面的衝突。
+const resources = () => ({
+  matchData: read(paths.DB_FILE).matchData || [], pitData: read(paths.DB_FILE).pitData || [],
+  schedule: read(paths.SCHEDULE_FILE), teams: read(paths.TEAMS_FILE),
+  assignments: read(paths.ASSIGNMENT_FILE), coprData: read(paths.COPR_FILE)
+});
+const revisions = () => Object.fromEntries(Object.entries(resources()).map(([key, data]) => [key, revision(data)]));
+const writeResources = {
+  '/api/upload-pit': ['pitData'], '/api/save-pit': ['pitData'],
+  '/api/update-score': ['schedule'], '/api/save-schedule': ['schedule'],
+  '/api/save-teams': ['teams'], '/api/save-assignments': ['assignments'], '/api/save-copr': ['coprData'],
+  '/api/sync-tba-matches': ['schedule'], '/api/sync-external': ['teams', 'coprData']
+};
+app.use((req, res, next) => {
+  const fields = writeResources[req.path];
+  if (!fields) return next();
+  if (req.method !== 'POST') return res.status(405).json({ error: '此操作請使用 POST' });
+  if (req.body.eventKey !== getEvent()) return res.status(409).json({ error: '賽事已變更或未指定，請重新整理後重試' });
+  try {
+    const current = revisions();
+    if (fields.some(field => req.body.revisions?.[field] !== current[field])) {
+      return res.status(409).json({ error: '其他裝置已更新資料，請重新整理後重試；本次未覆寫資料' });
+    }
+    next();
+  } catch (err) { res.status(500).json({ error: '無法讀取資料版本，未執行寫入' }); }
+});
+
 // --- API 路由 ---
 
 // 1. 取得所有核心資料
@@ -79,6 +116,8 @@ app.get('/api/data', (req, res) => {
     };
 
     res.json({
+      eventKey: getEvent(),
+      revisions: revisions(),
       matchData: readJSON(paths.DB_FILE, { matchData: [] }).matchData || [],
       pitData: readJSON(paths.DB_FILE, { pitData: [] }).pitData || [],
       schedule: readJSON(paths.SCHEDULE_FILE, {}),
@@ -93,6 +132,7 @@ app.get('/api/data', (req, res) => {
 app.post('/api/upload-pit', (req, res) => {
   try {
     const { scouter, data } = req.body;
+    if (!Array.isArray(data) || data.some(r => !r || r.eventKey !== getEvent())) return res.status(400).json({ error: 'Pit 紀錄賽事不符，請先確認每筆紀錄的賽事' });
     const masterData = JSON.parse(fs.readFileSync(paths.DB_FILE, 'utf8'));
 
     data.forEach(newRecord => {
@@ -103,45 +143,48 @@ app.post('/api/upload-pit', (req, res) => {
       else (masterData.pitData = masterData.pitData || []).push(recordWithMeta);
     });
 
-    fs.writeFileSync(paths.DB_FILE, JSON.stringify(masterData, null, 2));
+    atomicWriteJson(paths.DB_FILE, masterData);
     res.json({ message: "Pit Data Synced", count: masterData.pitData.length });
   } catch (err) {
     res.status(500).send("Pit Upload Error");
   }
 });
 
-// 3. 儲存 Match 數據
+// 僅儲存本次編輯的集合，舊版本不得覆蓋其他裝置的新資料。
 app.post('/api/save', (req, res) => {
   try {
-    const { matchData, pitData } = req.body;
-    const masterData = JSON.parse(fs.readFileSync(paths.DB_FILE, 'utf8'));
-
-    if (matchData && Array.isArray(matchData)) {
-      masterData.matchData = matchData.map(record => {
-        const level = record.compLevel || 'qm';
-        return {
-          ...record,
-          compLevel: level,
-          matchKey: record.matchKey || `${level}_${record.match}`,
-          updatedAt: new Date().toISOString()
-        };
-      });
+    const master = read(paths.DB_FILE);
+    const fields = ['matchData', 'pitData'].filter(k => req.body[k] !== undefined);
+    if (!fields.length) return res.status(400).json({ error: '缺少資料' });
+    if (req.body.eventKey !== getEvent()) return res.status(409).json({ error: '賽事已切換，請重新整理' });
+    for (const field of fields) {
+      if (!Array.isArray(req.body[field])) return res.status(400).json({ error: '資料格式錯誤' });
+      if (req.body.revisions?.[field] !== revision(master[field] || [])) {
+        return res.status(409).json({ error: '其他裝置已更新資料，請重新整理後再修改；本次未覆蓋資料' });
+      }
     }
-    if (pitData) masterData.pitData = pitData;
+    fields.forEach(field => { master[field] = req.body[field]; });
+    atomicWriteJson(paths.DB_FILE, master);
+    res.json({ message: '已儲存' });
+  } catch (err) { res.status(500).json({ error: '儲存失敗' }); }
+});
 
-    fs.writeFileSync(paths.DB_FILE, JSON.stringify(masterData, null, 2));
-    res.json({ message: "Success", receivedCount: matchData ? matchData.length : 0 });
-  } catch (err) {
-    res.status(500).json({ error: "Save Error" });
-  }
+app.post('/api/save-pit', (req, res) => {
+  try {
+    const master = read(paths.DB_FILE);
+    if (req.body.pitData?.some?.(r => r.eventKey && r.eventKey !== getEvent())) return res.status(400).json({ error: 'Pit 匯入檔包含其他賽事' });
+    master.pitData = mergePit(master.pitData || [], req.body.pitData);
+    atomicWriteJson(paths.DB_FILE, master);
+    res.json({ count: req.body.pitData.length });
+  } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 // 4. 更新單場比分
 app.post('/api/update-score', (req, res) => {
   try {
-    const { matchNum, redScore, blueScore, redRP, blueRP } = req.body;
+    const { matchKey, redScore, blueScore, redRP, blueRP } = req.body;
     const scheduleData = JSON.parse(fs.readFileSync(paths.SCHEDULE_FILE, 'utf8'));
-    const mKey = String(matchNum);
+    const mKey = String(matchKey);
 
     if (scheduleData[mKey]) {
       scheduleData[mKey].scores = {
@@ -150,7 +193,7 @@ app.post('/api/update-score', (req, res) => {
         redRP: parseInt(redRP) || 0,
         blueRP: parseInt(blueRP) || 0
       };
-      fs.writeFileSync(paths.SCHEDULE_FILE, JSON.stringify(scheduleData, null, 2));
+      atomicWriteJson(paths.SCHEDULE_FILE, scheduleData);
       res.json({ message: "Score Updated" });
     } else {
       res.status(400).send("Match not found");
@@ -163,7 +206,10 @@ app.post('/api/update-score', (req, res) => {
 // 5. 儲存官方 Teams 清單
 app.post('/api/save-teams', (req, res) => {
   try {
-    fs.writeFileSync(paths.TEAMS_FILE, JSON.stringify(req.body.teams, null, 2));
+    if (!req.body.teams || typeof req.body.teams !== 'object' || Array.isArray(req.body.teams)) {
+      return res.status(400).json({ error: '隊伍資料格式錯誤' });
+    }
+    atomicWriteJson(paths.TEAMS_FILE, req.body.teams);
     res.json({ message: "Teams DB Saved" });
   } catch (err) { res.status(500).send("Save Teams Error"); }
 });
@@ -171,7 +217,9 @@ app.post('/api/save-teams', (req, res) => {
 // 6. 儲存賽程
 app.post('/api/save-schedule', (req, res) => {
   try {
-    fs.writeFileSync(paths.SCHEDULE_FILE, JSON.stringify(req.body.schedule, null, 2));
+    if (req.body.eventKey && req.body.eventKey !== getEvent()) return res.status(409).json({ error: '賽事已切換，請重新整理' });
+    if (req.body.revisions?.schedule && req.body.revisions.schedule !== revision(read(paths.SCHEDULE_FILE))) return res.status(409).json({ error: '賽程已由其他裝置更新，請重新整理' });
+    atomicWriteJson(paths.SCHEDULE_FILE, normalizeSchedule(req.body.schedule));
     res.json({ message: "Schedule Saved" });
   } catch (err) { res.status(500).send("Save Schedule Error"); }
 });
@@ -191,6 +239,7 @@ app.get('/api/assignments', (req, res) => {
     }
     const data = JSON.parse(fs.readFileSync(paths.ASSIGNMENT_FILE, 'utf8'));
     res.json({
+      eventKey: getEvent(), revisions: revisions(),
       assignments: data.assignments || [],
       scouterList: data.scouterList || []
     });
@@ -203,11 +252,14 @@ app.get('/api/assignments', (req, res) => {
 // 儲存排班與 Scouter 名單
 app.post('/api/save-assignments', (req, res) => {
   try {
+    if (!Array.isArray(req.body.assignments) || !Array.isArray(req.body.scouterList)) {
+      return res.status(400).json({ error: '排班資料格式錯誤' });
+    }
     const dataToSave = {
-      ...req.body,
+      assignments: req.body.assignments, scouterList: req.body.scouterList,
       lastUpdated: new Date().toISOString()
     };
-    fs.writeFileSync(paths.ASSIGNMENT_FILE, JSON.stringify(dataToSave, null, 2));
+    atomicWriteJson(paths.ASSIGNMENT_FILE, dataToSave);
     res.json({ message: "Assignments Saved Success" });
   } catch (err) {
     console.error("Save Assignments Error:", err);
@@ -217,7 +269,8 @@ app.post('/api/save-assignments', (req, res) => {
 
 app.post('/api/save-copr', (req, res) => {
   try {
-    fs.writeFileSync(paths.COPR_FILE, JSON.stringify(req.body.coprData, null, 2));
+    if (!Array.isArray(req.body.coprData)) return res.status(400).json({ error: '分析資料格式錯誤' });
+    atomicWriteJson(paths.COPR_FILE, req.body.coprData);
     res.json({ message: "COPR Saved" });
   } catch (err) { res.status(500).send("Save Error"); }
 });
@@ -226,8 +279,8 @@ app.post('/api/save-copr', (req, res) => {
 app.get('/api/tba/team-history/:teamNumber', async (req, res) => {
   const teamKey = `frc${req.params.teamNumber}`;
   try {
-    const config = { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } };
-    const statusRes = await axios.get(`${TBA_BASE_URL}/team/${teamKey}/events/2026/statuses`, config);
+    const config = { headers: { 'X-TBA-Auth-Key': TBA_API_KEY }, timeout: 15000 };
+    const statusRes = await axios.get(`${TBA_BASE_URL}/team/${teamKey}/events/${getYear()}/statuses`, config);
     const events = Object.keys(statusRes.data);
     const historyData = [];
 
@@ -248,133 +301,59 @@ app.get('/api/stats/team-epa/:teamNumber', async (req, res) => {
   try {
     const teamNum = req.params.teamNumber.replace('frc', '');
     const year = getYear(); // ✨ 動態取得年度
-    const response = await axios.get(`https://api.statbotics.io/v3/team_year/${teamNum}/${year}`);
+    const response = await axios.get(`https://api.statbotics.io/v3/team_year/${teamNum}/${year}`, { timeout: 15000 });
     const data = response.data;
 
-    res.json({
-      total_epa: data.epa?.total || 0,
-      auto_epa: data.epa?.auto || 0,
-      teleop_epa: (data.epa?.total || 0) - (data.epa?.auto || 0),
-      percentile: data.percentile || 0
-    });
+    const values = metrics(data);
+    res.json({ total_epa: values.EPA, auto_epa: values.auto_EPA,
+      teleop_epa: values.teleop_EPA, percentile: values.percentile });
   } catch (error) {
     res.status(500).send("EPA V3 Error");
   }
 });
 
-// 3. 官方比分同步 (從 TBA 抓取真實結果)
-app.get('/api/sync-tba-matches', async (req, res) => {
-    try {
-        const eventKey = getEvent();
-        const config = { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } };
-        
-        const response = await axios.get(`${TBA_BASE_URL}/event/${eventKey}/matches`, config);
-        const tbaMatches = response.data;
-        let localSchedule = JSON.parse(fs.readFileSync(paths.SCHEDULE_FILE, 'utf8'));
-
-        tbaMatches.forEach(tbaMatch => {
-            const mNum = tbaMatch.match_number;
-            const mKey = String(mNum);
-            
-            if (localSchedule[mKey]) {
-                localSchedule[mKey] = {
-                    ...localSchedule[mKey],
-                    red_score: tbaMatch.alliances.red.score,
-                    blue_score: tbaMatch.alliances.blue.score,
-                    redRP: tbaMatch.score_breakdown?.red?.rp || 0,
-                    blueRP: tbaMatch.score_breakdown?.blue?.rp || 0,
-                    is_official: true
-                };
-            }
-        });
-
-        fs.writeFileSync(paths.SCHEDULE_FILE, JSON.stringify(localSchedule, null, 2));
-        res.json({ message: "Official scores synced", count: tbaMatches.length });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-//同步TBA路由
-
-app.get('/api/sync-external', async (req, res) => {
+// 同步時固定賽事及檔案路徑，避免切換賽事導致跨賽事寫入。
+app.post('/api/sync-tba-matches', async (req, res) => {
+  if (syncing) return res.status(409).json({ error: '另一項同步正在進行' });
+  if (!TBA_API_KEY) return res.status(400).json({ error: '請設定 TBA_API_KEY 並重啟後端' });
+  syncing = true;
+  const file = paths.SCHEDULE_FILE, event = getEvent(), original = fs.readFileSync(file, 'utf8');
   try {
-    const year = getYear();
-    const config = { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } };
-    
-    let teamList = [];
-    if (fs.existsSync(paths.TEAMS_FILE)) {
-        const teamsData = JSON.parse(fs.readFileSync(paths.TEAMS_FILE, 'utf8'));
-        teamList = Array.isArray(teamsData) ? teamsData : Object.keys(teamsData);
+    const response = await axios.get(`${TBA_BASE_URL}/event/${event}/matches`, {
+      headers: { 'X-TBA-Auth-Key': TBA_API_KEY }, timeout: 15000
+    });
+    if (!Array.isArray(response.data) || !response.data.length) throw new Error('TBA 尚無此賽事的賽程');
+    const schedule = normalizeSchedule(response.data);
+    for (const m of Object.values(schedule)) {
+      m.scores = { red: m.alliances.red.score, blue: m.alliances.blue.score,
+        redRP: m.score_breakdown?.red?.rp ?? 0, blueRP: m.score_breakdown?.blue?.rp ?? 0 };
+      m.is_official = m.alliances.red.score >= 0 && m.alliances.blue.score >= 0;
     }
+    if (fs.readFileSync(file, 'utf8') !== original) return res.status(409).json({ error: '同步期間賽程已變更，請重試' });
+    atomicWriteJson(file, schedule);
+    res.json({ count: response.data.length });
+  } catch (err) { res.status(502).json({ error: `官方賽程同步失敗：${err.response?.status || err.message}` }); }
+  finally { syncing = false; }
+});
 
-    const syncResults = [];
-    console.log(`📡 深度同步開始...`);
-
-    for (const team of teamList) {
-      try {
-        const teamNum = typeof team === 'object' ? (team.team_number || team.number) : team;
-        const teamKey = `frc${teamNum}`;
-        
-        const [epaRes, tbaRes, statusRes] = await Promise.all([
-          axios.get(`https://api.statbotics.io/v3/team_year/${teamNum}/${year}`).catch(() => null),
-          axios.get(`${TBA_BASE_URL}/team/${teamKey}`, config).catch(() => null),
-          axios.get(`${TBA_BASE_URL}/team/${teamKey}/events/${year}/statuses`, config).catch(() => ({ data: {} }))
-        ]);
-
-        const sData = epaRes?.data || {};
-        const epaB = sData.epa?.breakdown || {}; // Statbotics V3 主要數據區
-        const ranks = sData.epa?.ranks?.total || {};
-
-        // ✨ 修正：從參賽紀錄中計算平均 OPR (如果有的話)
-        const eventStatuses = statusRes.data || {};
-        let totalOPR = 0;
-        let eventCount = 0;
-
-        const history = Object.keys(eventStatuses).map(eKey => {
-            const status = eventStatuses[eKey];
-            // 試著從 status 獲取該賽事的 OPR (有些 API 會直接附帶)
-            const opr = status?.qual?.ranking?.sort_orders?.[0] || 0; 
-            if (opr > 0) { totalOPR += opr; eventCount++; }
-
-            return {
-                event: eKey,
-                rank: status?.qual?.ranking?.rank || "-",
-                record: status?.qual?.ranking?.record || { wins: 0, losses: 0, ties: 0 },
-                opr: opr.toFixed(1)
-            };
-        });
-
-        // 🛠️ 核心修正：確保 EPA 路徑正確
-        const calculatedTotal = Number(epaB.total_points || sData.epa?.total || 0);
-
-        syncResults.push({
-          team_number: Number(teamNum),
-          nickname: tbaRes?.data?.nickname || sData.name || `Team ${teamNum}`,
-          country: tbaRes?.data?.country || sData.country || "/",
-          state: tbaRes?.data?.state_prov || sData.state || "/",
-          world_rank: ranks.rank || "-", 
-          percentile: ranks.percentile ? (ranks.percentile * 100).toFixed(1) + "%" : "N/A",
-
-          // 📊 關鍵數據 (確保 Key 名稱與前端 Table 對齊)
-          EPA: Number(calculatedTotal.toFixed(1)), 
-          auto_EPA: Number((epaB.auto_points || 0).toFixed(1)),
-          teleop_EPA: Number((epaB.teleop_points || 0).toFixed(1)),
-          endgame_EPA: Number((epaB.endgame_points || 0).toFixed(1)),
-          OPR: eventCount > 0 ? (totalOPR / eventCount).toFixed(1) : "0.0",
-          
-          history: history,
-          last_updated: new Date().toISOString()
-        });
-
-        process.stdout.write(`✅ ${teamNum} `);
-        await new Promise(r => setTimeout(r, 200)); 
-      } catch (err) { console.error(`\n❌ Team ${team} 失敗:`, err.message); }
+app.post('/api/sync-external', async (req, res) => {
+  if (syncing) return res.status(409).json({ error: '另一項同步正在進行' });
+  syncing = true;
+  const coprFile = paths.COPR_FILE, teamsFile = paths.TEAMS_FILE;
+  const original = fs.readFileSync(coprFile, 'utf8');
+  const originalTeams = fs.readFileSync(teamsFile, 'utf8');
+  try {
+    const result = await syncExternal({ axios, key: TBA_API_KEY, event: getEvent(), year: getYear(),
+      teams: JSON.parse(originalTeams), previous: JSON.parse(original) });
+    if (!result.count) return res.status(502).json({ error: '所有隊伍查詢失敗，原資料未變更', ...result, data: undefined, teams: undefined });
+    if (fs.readFileSync(coprFile, 'utf8') !== original || fs.readFileSync(teamsFile, 'utf8') !== originalTeams) {
+      return res.status(409).json({ error: '同步期間資料已變更，請重試；原資料未覆蓋' });
     }
-
-    fs.writeFileSync(paths.COPR_FILE, JSON.stringify(syncResults, null, 2));
-    res.json({ message: "深度同步完成", count: syncResults.length });
-
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    atomicWriteJson(coprFile, result.data);
+    atomicWriteJson(teamsFile, result.teams);
+    res.json({ count: result.count, failed: result.failed, total: result.total, warnings: result.warnings });
+  } catch (err) { res.status(502).json({ error: `同步失敗：${err.response?.status || err.message}；原資料未變更` }); }
+  finally { syncing = false; }
 });
 // A. 取得目前配置
 app.get('/api/system/config', (req, res) => {
@@ -384,11 +363,31 @@ app.get('/api/system/config', (req, res) => {
   });
 });
 
+// 下載單一、可攜的賽事備份；不包含 API 金鑰。
+app.get('/api/system/export', (req, res) => {
+  try {
+    const eventKey = getEvent();
+    const bundle = {
+      format: 'frc-scout-backup-v1',
+      exportedAt: new Date().toISOString(),
+      year: getYear(),
+      eventKey,
+      ...resources()
+    };
+    res.setHeader('Content-Disposition', `attachment; filename="${eventKey}-scouting-backup.json"`);
+    res.json(bundle);
+  } catch (err) {
+    res.status(500).json({ error: '無法建立備份檔' });
+  }
+});
+
 // B. 執行切換賽事
 app.post('/api/system/switch-event', (req, res) => {
+  if (syncing) return res.status(409).json({ error: '請等待同步完成後再切換賽事' });
+  if (req.body.expectedEventKey !== getEvent()) return res.status(409).json({ error: '賽事已由其他裝置切換，請重新整理' });
   const { year, eventKey } = req.body;
   
-  if (!year || !eventKey) return res.status(400).json({ error: "缺少參數" });
+  if (!/^\d{4}$/.test(String(year)) || !/^\d{4}[a-z0-9]+$/.test(String(eventKey)) || !String(eventKey).startsWith(String(year))) return res.status(400).json({ error: "缺少參數" });
 
   try {
     // 1. 更新執行中的環境變數
@@ -398,6 +397,7 @@ app.post('/api/system/switch-event', (req, res) => {
     // 2. 重新觸發目錄初始化 (確保新賽事的 Data/XXXX 資料夾被建立)
     // 這裡需要確保你的 paths.js 是動態讀取 process.env 的
     initSystem(); 
+    atomicWriteJson(paths.RUNTIME_CONFIG_FILE, { year, eventKey });
 
     console.log(`🚀 系統已切換至賽事: ${eventKey} (${year})`);
     res.json({ message: `成功切換至 ${eventKey}`, currentEvent: eventKey });
@@ -406,8 +406,9 @@ app.post('/api/system/switch-event', (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+if (require.main === module) app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server is running!`);
   console.log(`🏠 Local: http://localhost:${PORT}`);
   // 這裡可以手動印出你的電腦 IP，方便隊友連線
 });
+module.exports = app;

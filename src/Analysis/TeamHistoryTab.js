@@ -87,10 +87,10 @@ const TeamHistoryTab = ({ coprData, setActiveTab, setSelectedTeam: setGlobalSele
                                 >
                                     {team.team_number}
                                 </td>
-                                <td>{team.nickname}</td>
+                                <td>{team.nickname}{team.sync_warnings?.length > 0 && <small style={{ display: 'block', color: '#b45309' }}>{team.sync_warnings.join('；')}</small>}</td>
                                 <td>{team.world_rank || '-'}</td>
-                                <td style={{ color: '#e67e22', fontWeight: 'bold' }}>{team.OPR}</td>
-                                <td style={{ color: '#27ae60' }}>{team.EPA}</td>
+                                <td style={{ color: '#e67e22', fontWeight: 'bold' }}>{team.OPR ?? '—'}</td>
+                                <td style={{ color: '#27ae60' }}>{team.EPA ?? '—'}</td>
                                 <td>{Array.isArray(team.history) ? team.history.length : 0} 場</td>
                                 <td>
                                     {/* ✨ 修正 3: 這裡改為設定 local 物件，給本頁 Modal 使用 */}

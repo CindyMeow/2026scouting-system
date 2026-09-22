@@ -1,4 +1,5 @@
 import React from 'react';
+import { parseCsv, recordsFromCsv } from '../utils/csv';
 // ✨ 這是對應 ScouterPage.js 的 P00112233_S4455 的解碼器
 const decodeAutoData = (rawStr) => {
   if (!rawStr || !rawStr.includes('_')) return { path: [], shots: [] };
@@ -26,101 +27,63 @@ const decodeAutoData = (rawStr) => {
 
 const ImportTab = ({
     qrInput, setQrInput, handleQrScan,
-    handleFileImport, pendingPitData, resolveConflict, setTeams
+    handleFileImport, pendingPitData, resolveConflict, setTeams, write
 }) => {
     // --- 1. 定義解析 COPR CSV 的函數 ---
     const processCOPRCSV = async (csvText) => {
         try {
-            const lines = csvText.split('\n').map(l => l.trim()).filter(l => l);
-            if (lines.length < 2) return;
-
-            const headers = lines[0].split(',').map(h => h.trim());
-            const coprData = [];
-
-            for (let i = 1; i < lines.length; i++) {
-                const values = lines[i].split(',');
-                if (values.length < headers.length) continue;
-
-                const row = {};
-                headers.forEach((header, index) => {
-                    const val = values[index];
-                    // 只有 team_number 存成字串，其餘數據轉為數字
-                    row[header] = (header.toLowerCase().includes('team')) ? String(val) : (parseFloat(val) || 0);
-                });
-                coprData.push(row);
-            }
+            const rows = recordsFromCsv(csvText);
+            const coprData = rows.map(row => Object.fromEntries(Object.entries(row).map(([header, value]) =>
+                [header, header.toLowerCase().includes('team') ? String(value) : (Number(value) || 0)])));
+            if (!coprData.length || !window.confirm(`即將匯入 ${coprData.length} 筆分析資料，確定繼續？`)) return;
 
             // 發送到後端儲存
-            const response = await fetch(`http://${window.location.hostname}:5000/api/save-copr`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ coprData })
-            });
-
-            if (response.ok) {
-                alert(`✅ 成功匯入 ${coprData.length} 筆 COPR 分析數據！`);
-            }
+            await write('/api/save-copr', { coprData });
+            alert(`✅ 成功匯入 ${coprData.length} 筆 COPR 分析數據！`);
         } catch (err) {
             console.error("COPR 匯入失敗:", err);
-            alert("匯入失敗，請檢查主控台錯誤訊息");
+            alert(`匯入失敗：${err.message}`);
         }
     };
     // --- 新增：處理隊伍清單 CSV 並同步至後端 ---
     const processTeamListCSV = async (csvText) => {
-        const lines = csvText.split('\n').map(l => l.trim()).filter(l => l);
+        const rows = recordsFromCsv(csvText);
         const teamData = {};
-
-        for (let i = 1; i < lines.length; i++) {
-            const values = lines[i].split(',');
-            if (values.length < 2) continue;
-
-            const teamNum = values[0]; // team_number
+        for (const row of rows) {
+            const teamNum = row.team_number;
+            if (!/^\d+$/.test(teamNum || '')) throw new Error(`隊號格式錯誤：${teamNum || '空白'}`);
             teamData[teamNum] = {
-                team_name: values[1] || "",
-                city: values[2] || "",
-                state: values[3] || "",
-                country: values[4] || "",
-                robot_image_url: values[5]?.trim() || null
+                team_name: row.team_name || row.nickname || "",
+                city: row.city || "", state: row.state || row.state_prov || "",
+                country: row.country || "", robot_image_url: row.robot_image_url || null
             };
         }
+        if (!Object.keys(teamData).length || !window.confirm(`即將匯入 ${Object.keys(teamData).length} 支隊伍，確定繼續？`)) return;
 
         // 更新前端 State
-        setTeams(teamData);
+
 
         // 同步存檔到伺服器
         try {
-            await fetch(`http://${window.location.hostname}:5000/api/save-teams`, {
-                
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ teams: teamData })
-            });
+            await write('/api/save-teams', { teams: teamData });
+            setTeams(teamData);
             alert(`✅ 成功匯入 ${Object.keys(teamData).length} 支隊伍官方資料！`);
         } catch (err) {
             console.error("隊伍資料存檔失敗:", err);
-            alert("隊伍資料匯入成功，但伺服器存檔失敗。");
+            alert(`隊伍資料未匯入：${err.message}`);
         }
     };
 
 // --- 新增：處理官方賽程 CSV ---
     const processScheduleCSV = (csvText) => {
-        const lines = csvText.split('\n').map(l => l.trim()).filter(l => l);
-        if (lines.length < 2) return;
-
-        const headers = lines[0].split(',');
-        const scheduleData = lines.slice(1).map(line => {
-            const values = line.split(',');
-            const obj = {};
-            headers.forEach((header, i) => {
-                const val = values[i];
-                // 嘗試將數字字串轉為純數字
-                obj[header] = isNaN(val) ? val : parseInt(val);
-            });
+        const scheduleData = recordsFromCsv(csvText).map(row => {
+            const obj = Object.fromEntries(Object.entries(row).map(([header, val]) =>
+                [header.trim(), val !== '' && Number.isFinite(Number(val)) ? Number(val) : val]));
             // 確保有 match 欄位供 HeadScoutPage 判定
             obj.match = obj.match_number; 
             return obj;
         });
-
+        if (!scheduleData.length || !window.confirm(`即將匯入 ${scheduleData.length} 場賽程，會取代目前賽程，確定繼續？`)) return;
         // 呼叫父組件傳進來的 handleFileImport，傳入解析好的陣列
         handleFileImport(scheduleData);
     };
@@ -148,22 +111,18 @@ const ImportTab = ({
         // 2. 處理 CSV
         if (file.name.endsWith('.csv')) {
             const reader = new FileReader();
-            reader.onload = (event) => {
+            reader.onload = async (event) => {
                 const text = event.target.result;
-                const firstLine = text.split('\n')[0].toLowerCase();
-
-                if (firstLine.includes('opr') || firstLine.includes('component')) {
-                    processCOPRCSV(text);
-                }
-                else if (firstLine.includes('team_number')) {
-                    processTeamListCSV(text);
-                }
-                // ✨ 關鍵修正：識別賽程 CSV
-                else if (firstLine.includes('match_key') || firstLine.includes('red1')) {
-                    processScheduleCSV(text);
-                }
-                else {
-                    alert("無法識別的 CSV 格式");
+                let firstLine;
+                try { firstLine = parseCsv(text)[0].join(',').toLowerCase(); }
+                catch (error) { alert(`CSV 格式錯誤：${error.message}`); return; }
+                try {
+                    if (firstLine.includes('opr') || firstLine.includes('component')) await processCOPRCSV(text);
+                    else if (firstLine.includes('team_number')) await processTeamListCSV(text);
+                    else if (firstLine.includes('match_key') || firstLine.includes('red1')) await processScheduleCSV(text);
+                    else alert("無法識別的 CSV 格式");
+                } catch (error) {
+                    alert(`CSV 匯入失敗：${error.message}`);
                 }
             };
             reader.readAsText(file);

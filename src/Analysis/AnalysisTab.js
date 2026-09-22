@@ -34,9 +34,9 @@ const AnalysisTab = ({ allTeamsData, coprData, onTeamClick }) => {
         team: teamNum,
         name: allTeamsData.teams[teamNum]?.team_name || "Unknown",
         // --- TBA / Statbotics 數據 ---
-        opr: parseFloat(stats.OPR || 0).toFixed(1),
-        epa: parseFloat(stats.EPA || 0).toFixed(1), // ✨ 新增 EPA
-        autoEPA: parseFloat(stats.auto_EPA || 0).toFixed(1), // ✨ 新增 Auto EPA
+        opr: stats.OPR == null ? '—' : Number(stats.OPR).toFixed(1),
+        epa: stats.EPA == null ? '—' : Number(stats.EPA).toFixed(1), // ✨ 新增 EPA
+        autoEPA: stats.auto_EPA == null ? '—' : Number(stats.auto_EPA).toFixed(1), // ✨ 新增 Auto EPA
 
         // --- 現場 Scouting 數據 ---
         scoutFuelH: avgFuelH.toFixed(1),
@@ -46,7 +46,7 @@ const AnalysisTab = ({ allTeamsData, coprData, onTeamClick }) => {
         // --- Pit 數據 ---
         shooterType: pitInfo.shooter || 'Unknown',
         intakeType: pitInfo.intake || 'Unknown',
-        canClimb: (pitInfo.climbLevel && pitInfo.climbLevel !== "0") ? 'Yes' : 'No'
+        canClimb: (['None', '0', '', undefined, null].includes(pitInfo.climb ?? pitInfo.climbLevel)) ? 'No' : 'Yes'
       };
     });
   }, [allTeamsData, coprData]);
@@ -87,6 +87,7 @@ const AnalysisTab = ({ allTeamsData, coprData, onTeamClick }) => {
 
   return (
     <div className="scout-card">
+      {coprData?.some(t => t.sync_warnings?.length) && <p role="alert">部分外部資料更新失敗，表格保留上次數據；請至賽季情資查看各隊狀態。</p>}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
         <h3 style={{ margin: 0 }}>📊 綜合競爭力分析表 (TBA + Scouting)</h3>
 

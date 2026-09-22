@@ -4,4 +4,6 @@ build
 npm-debug.log*
 .env
 Data/**/*.json
+Data/**/*.bak
+Data/**/*.zip
 TBA/*.csv

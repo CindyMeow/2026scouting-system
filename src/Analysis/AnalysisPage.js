@@ -1,3 +1,4 @@
+import { emptyPicks, reconcilePicks, pickStorageKey } from '../utils/pickLists';
 // AnalysisPage.js
 import React, { useState, useEffect } from 'react';
 // 1. ✨ 引入獨立的 CSS 檔案
@@ -15,11 +16,16 @@ const AnalysisPage = ({ allTeamsData, coprData, teamsDb, assignments, onTeamClic
     red: ['', '', ''],
     blue: ['', '', '']
   });
-  const [pickLists, setPickLists] = useState({
-    all: [],
-    watchlist: [],
-    pick1: [],
-    pick2: []
+  const eventKey = allTeamsData?.eventKey;
+  const [pickState, setPickState] = useState({ event: null, lists: emptyPicks(), error: '' });
+  const pickLists = pickState.event === eventKey ? pickState.lists : emptyPicks();
+  const setPickLists = update => setPickState(prev => {
+    if (prev.event !== eventKey || !eventKey) return prev;
+    const proposed = typeof update === 'function' ? update(prev.lists) : update;
+    const lists = reconcilePicks(proposed, Object.keys(allTeamsData?.teams || {}));
+    try { localStorage.setItem(pickStorageKey(eventKey), JSON.stringify(lists)); }
+    catch { return { ...prev, lists, error: '無法儲存選秀清單，請勿關閉頁面並檢查瀏覽器儲存空間' }; }
+    return { ...prev, lists, error: '' };
   });
   const [radarTeams, setRadarTeams] = useState({
     teamA: '',
@@ -27,11 +33,16 @@ const AnalysisPage = ({ allTeamsData, coprData, teamsDb, assignments, onTeamClic
   });
 
   useEffect(() => {
-    if (allTeamsData?.teams && pickLists.all.length === 0) {
-      const allNums = Object.keys(allTeamsData.teams).sort((a, b) => a - b);
-      setPickLists(prev => ({ ...prev, all: allNums }));
-    }
-  }, [allTeamsData, pickLists.all.length]);
+    if (!eventKey) return;
+    setPickState(prev => {
+      const teams = Object.keys(allTeamsData?.teams || {});
+      if (prev.event === eventKey) return { ...prev, lists: reconcilePicks(prev.lists, teams) };
+      try {
+        const saved = JSON.parse(localStorage.getItem(pickStorageKey(eventKey)) || 'null');
+        return { event: eventKey, lists: reconcilePicks(saved, teams), error: '' };
+      } catch { return { event: eventKey, lists: reconcilePicks(null, teams), error: '舊選秀清單無法讀取，尚未覆寫；請先備份瀏覽器資料' }; }
+    });
+  }, [eventKey, allTeamsData?.teams]);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -87,6 +98,7 @@ const AnalysisPage = ({ allTeamsData, coprData, teamsDb, assignments, onTeamClic
         </div>
 
         <div className="content-area">
+          {pickState.error && <p role="alert">{pickState.error}</p>}
           {renderContent()}
         </div>
       </div>
